@@ -1,0 +1,29 @@
+version: '3.8'
+
+services:
+  ngaquant:
+    build: .
+    container_name: ngaquant
+    volumes:
+      - ./data:/app/data
+      - ./logs:/app/logs
+      - ./output:/app/output
+      - ./config.yaml:/app/config.yaml:ro
+    environment:
+      - KIMI_API_KEY=${KIMI_API_KEY}
+      - FEISHU_WEBHOOK=${FEISHU_WEBHOOK}
+    command: python cli.py monitor --tid ${TARGET_TID}
+    restart: unless-stopped
+    
+  web:
+    build: .
+    container_name: ngaquant-web
+    ports:
+      - "8501:8501"
+    volumes:
+      - ./data:/app/data
+      - ./config.yaml:/app/config.yaml:ro
+    environment:
+      - KIMI_API_KEY=${KIMI_API_KEY}
+    command: streamlit run web/app.py --server.port=8501 --server.address=0.0.0.0
+    restart: unless-stopped
