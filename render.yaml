@@ -1,0 +1,15 @@
+services:
+  - type: web
+    name: ngaquant
+    runtime: docker
+    repo: https://github.com/noskystar/NGAQuant
+    branch: main
+    dockerfilePath: ./Dockerfile
+    dockerContext: .
+    envVars:
+      - key: KIMI_API_KEY
+        sync: false
+      - key: FEISHU_WEBHOOK
+        sync: false
+    healthCheckPath: /_health
+    autoDeploy: true
