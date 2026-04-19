@@ -65,6 +65,7 @@ class LLMClient:
         prompt = self._build_sentiment_prompt(text, context)
 
         # 3次重试机制
+        content = None
         last_error = None
         for attempt in range(3):
             try:
@@ -94,6 +95,14 @@ class LLMClient:
                     print("API 全部重试失败: " + str(e))
 
         # 内容处理（不再在 try 内）
+        if content is None:
+            return SentimentResult(
+                sentiment=SentimentType.NEUTRAL,
+                confidence=0.0,
+                reasoning="API 全部重试失败（" + str(last_error) + "）",
+                mentioned_stocks=[],
+                key_points=[]
+            )
         content = content.strip()
         # 去除 MiniMax 思考标签
         import re
