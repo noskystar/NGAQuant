@@ -198,7 +198,8 @@ class SentimentAggregator:
         # 收集所有提到的股票
         all_stocks = []
         for result in results:
-            all_stocks.extend(result.mentioned_stocks)
+            if result.mentioned_stocks:
+                all_stocks.extend(result.mentioned_stocks)
         
         # 股票频率统计
         from collections import Counter
