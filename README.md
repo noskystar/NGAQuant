@@ -29,7 +29,7 @@ pip install -r requirements.txt
 
 # 3. 配置环境变量
 cp config.example.yaml config.yaml
-# 编辑 config.yaml，填入你的 API Key
+# 编辑 config.yaml，填入你的 MiniMax API Key
 
 # 4. 运行分析
 python cli.py analyze --tid 12345678
@@ -45,7 +45,7 @@ docker-compose up -d
 docker-compose logs -f
 ```
 
-### 方式三：Web 界面
+### 方式三：Web 界面（推荐）
 
 ```bash
 streamlit run web/app.py
@@ -62,8 +62,8 @@ streamlit run web/app.py
 - [x] 错误重试
 
 ### 2. 分析处理 ✅
-- [x] 情感分析（Kimi API）
-- [x] 股票代码提取
+- [x] 情感分析（MiniMax LLM）
+- [x] 股票代码提取（115只+股票字典）
 - [x] 情绪指数计算
 - [x] 热度统计
 
@@ -112,14 +112,14 @@ NGAQuant/
 ├── Makefile                 # 便捷命令
 ├── cli.py                   # 命令行工具
 ├── web/
-│   └── app.py              # Web 界面
+│   └── app.py              # Web 界面（Streamlit）
 ├── src/
 │   ├── crawler/            # 爬虫模块
 │   │   ├── __init__.py
 │   │   └── nga_client.py   # NGA API/网页爬虫
 │   ├── analyzer/           # 分析模块
 │   │   ├── __init__.py
-│   │   ├── sentiment.py    # 情感分析
+│   │   ├── sentiment.py    # 情感分析（MiniMax）
 │   │   └── stock_extractor.py # 股票提取
 │   ├── database/           # 数据存储
 │   │   ├── __init__.py
@@ -137,6 +137,7 @@ NGAQuant/
 │   ├── backtest/           # 回测系统
 │   │   ├── __init__.py
 │   │   └── engine.py       # 回测引擎
+│   ├── config.py           # 配置管理
 │   └── utils/              # 工具模块
 │       ├── __init__.py
 │       └── logger.py       # 日志配置
@@ -149,12 +150,12 @@ NGAQuant/
 
 | 组件 | 技术 |
 |------|------|
-| 爬虫 | Python + Playwright |
-| 情感分析 | Kimi API (LLM) |
-| 股票数据 | AKShare / Tushare |
+| 爬虫 | Python + Requests + BeautifulSoup |
+| 情感分析 | MiniMax API (LLM) |
+| 股票数据 | 内置股票字典（A股/港股/美股/指数） |
 | 数据库 | SQLite + SQLAlchemy |
-| 后端 | Python FastAPI (CLI) |
-| 前端 | Streamlit |
+| 后端 | Python CLI |
+| 前端 | Streamlit + Plotly |
 | 推送 | 飞书机器人 |
 | 部署 | Docker + Docker Compose |
 | 日志 | Loguru |
@@ -165,11 +166,28 @@ NGAQuant/
 ### 环境变量配置
 
 ```bash
-# Kimi API Key
-export KIMI_API_KEY="your_api_key"
+# MiniMax API Key（必需）
+export MINIMAX_API_KEY="your_api_key_here"
 
 # 飞书 Webhook（可选）
 export FEISHU_WEBHOOK="https://open.feishu.cn/..."
+```
+
+### config.yaml 配置示例
+
+```yaml
+minimax:
+  api_key: "your_api_key_here"
+  base_url: "http://api.minimaxi.com/v1"
+  model: "MiniMax-M2.7"
+
+feishu:
+  webhook_url: "https://open.feishu.cn/..."
+
+nga:
+  cookie: ""
+  request_delay: 2
+  timeout: 30
 ```
 
 ### CLI 命令
@@ -178,17 +196,18 @@ export FEISHU_WEBHOOK="https://open.feishu.cn/..."
 # 分析指定帖子
 python cli.py analyze --tid 12345678 --max-pages 5
 
-# 监控模式（开发中）
+# 监控模式
 python cli.py monitor --tid 12345678 --interval 300
 ```
 
 ### Web 界面功能
 
-- 📊 情绪指数仪表盘
-- 📈 情感分布饼图
-- 🔥 热门股票列表
-- 💡 投资建议展示
-- 📚 历史记录查询
+- 📊 情绪指数仪表盘（0-100 指数，贪婪/恐惧/中性）
+- 📈 情感分布饼图（强烈看涨/轻度看涨/中性/轻度看跌/强烈看跌）
+- 📉 热门股票柱状图
+- 💡 投资建议（基于情绪反向指标）
+- 📚 原始帖子内容查看
+- ⚙️ 可视化配置面板
 
 ## 🛣️ 路线图
 
@@ -208,19 +227,13 @@ python cli.py monitor --tid 12345678 --interval 300
 - [x] 爬虫重试机制
 - [x] 股票字典扩展（115只+）
 - [x] 功能测试脚本
+- [x] Web 界面重构（Streamlit）
 
 ### Phase 3: 智能 (规划中)
 - [ ] 自动交易对接
 - [ ] 机器学习模型
 - [ ] 策略优化
 - [ ] 社区功能
-
-## 📈 效果验证
-
-通过历史数据回测，验证策略有效性：
-- 情绪指标 vs 股价走势
-- 信号准确率
-- 收益率统计
 
 ## 🌐 部署方案
 
@@ -237,19 +250,25 @@ python cli.py monitor --tid 12345678 --interval 300
 - 简单配置
 
 ### 方案 3：自托管
-使用 Docker Compose：
 ```bash
-docker-compose up -d
+streamlit run web/app.py --server.port 8501
 ```
+
+## ⚠️ 注意事项
+
+**API Key 安全：**
+- 请勿将 `config.yaml` 或包含真实 Key 的文件提交到版本库
+- `.gitignore` 已忽略 `config.yaml`、`venv/` 等敏感文件
+- 建议使用环境变量方式配置 Key
 
 ## 📝 开发进度
 
-**当前状态：Phase 1 完成 ✅**
+**当前状态：Phase 2 完成 ✅**
 
-- 总代码量：约 4000 行
+- 总代码量：约 4500 行
 - 模块数量：8 个核心模块
 - 测试覆盖：核心功能
-- 部署方式：Docker + 本地
+- 部署方式：Docker + 本地 + Streamlit
 
 ## ⚠️ 免责声明
 
