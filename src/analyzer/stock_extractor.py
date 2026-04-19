@@ -319,13 +319,15 @@ def extract_stock_names(text: str) -> List[Stock]:
 
     return stocks
 
-def extract_stocks(text: str, search_pinyin: bool = True) -> List[Stock]:
+def extract_stocks(text: str, search_pinyin: bool = False) -> List["Stock"]:
     """
     从文本中提取所有股票信息（代码+名称+拼音缩写）
     
     Args:
         text: 原始文本
-        search_pinyin: 是否用 akshare 搜索未知拼音缩写（默认开启，会首次耗时加载）
+        search_pinyin: 是否用 akshare 搜索未知拼音缩写
+                         默认为 False（避免全量拼音库匹配开销）
+                         当文本包含可疑4-6字母缩写时自动开启
         
     Returns:
         去重后的股票列表
@@ -344,7 +346,11 @@ def extract_stocks(text: str, search_pinyin: bool = True) -> List[Stock]:
             stock_dict[code] = stock
         already_found.add(stock.name)
     
-    # 尝试用 akshare 搜索未知拼音缩写（如 ZWHL、YDTX、YLCM）
+    # 智能拼音搜索：文本包含可疑4-6字母缩写时自动开启
+    if not search_pinyin:
+        has_abbr = re.search(r'(?<![A-Za-z0-9])([A-Z]{4,6})(?![A-Za-z0-9])', text.upper())
+        search_pinyin = bool(has_abbr)
+    
     if search_pinyin:
         extra = search_unknown_pinyin(text, already_found)
         for stock in extra:
@@ -367,7 +373,7 @@ def analyze_stock_mentions(posts: List[str]) -> List[Stock]:
     all_stocks: Dict[str, Stock] = {}
     
     for post in posts:
-        stocks = extract_stocks(post)
+        stocks = extract_stocks(post, search_pinyin=False)
         for stock in stocks:
             code = stock.code
             if code in all_stocks:
@@ -471,7 +477,7 @@ if __name__ == "__main__":
     
     for i, text in enumerate(test_cases, 1):
         print(f"\n测试 {i}: {text[:50]}...")
-        stocks = extract_stocks(text)
+        stocks = extract_stocks(text, search_pinyin=False)
         print(f"提取到 {len(stocks)} 只股票:")
         for stock in stocks:
             print(f"  - {stock.name} ({stock.code}.{stock.market}) x{stock.mention_count}")
