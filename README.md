@@ -120,7 +120,6 @@ NGAQuant/
 │   ├── analyzer/           # 分析模块
 │   │   ├── __init__.py
 │   │   ├── sentiment.py    # 情感分析（MiniMax）
-│   │   └── stock_extractor.py # 股票提取
 │   ├── database/           # 数据存储
 │   │   ├── __init__.py
 │   │   ├── models.py       # 数据模型
@@ -143,7 +142,6 @@ NGAQuant/
 │       └── logger.py       # 日志配置
 └── tests/                   # 测试
     ├── test_crawler.py
-    └── test_stock_extractor.py
 ```
 
 ## 🛠️ 技术栈
