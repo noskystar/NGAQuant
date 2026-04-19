@@ -64,48 +64,58 @@ class LLMClient:
 
         prompt = self._build_sentiment_prompt(text, context)
 
-        try:
-            response = self.client.chat.completions.create(
-                model="MiniMax-M2.7",
-                messages=[
-                    {
-                        "role": "system",
-                        "content": "你是一个专业的股市情感分析专家。分析散户论坛帖子中的投资情绪和观点。"
-                    },
-                    {
-                        "role": "user",
-                        "content": prompt
-                    }
-                ],
-                temperature=0.3,
-            )
+        # 3次重试机制
+        last_error = None
+        for attempt in range(3):
+            try:
+                response = self.client.chat.completions.create(
+                    model="MiniMax-M2.7",
+                    messages=[
+                        {
+                            "role": "system",
+                            "content": "你是一个专业的股市情感分析专家。分析散户论坛帖子中的投资情绪和观点。"
+                        },
+                        {
+                            "role": "user",
+                            "content": prompt
+                        }
+                    ],
+                    temperature=0.3,
+                )
+                content = response.choices[0].message.content
+                break
+            except Exception as e:
+                last_error = e
+                if attempt < 2:
+                    import time
+                    time.sleep(2)
+                    print("  [重试 " + str(attempt+1) + "/3] " + str(e))
+                else:
+                    print("API 全部重试失败: " + str(e))
 
-            content = response.choices[0].message.content
-            content = content.strip()
-            # 去除 MiniMax 思考标签
-            import re
-            content = re.sub(r"<think>.*?</think>", "", content, flags=re.DOTALL).strip()
-            # 去除 markdown 代码块包裹
-            if content.startswith("```"):
-                lines = content.split("\n")
-                content = "\n".join(lines[1:-1])
-            # 只取第一个 JSON 对象
-            brace_start = content.find('{')
-            brace_end = content.rfind('}')
-            if brace_start >= 0 and brace_end > brace_start:
-                content = content[brace_start:brace_end+1]
-            result = json.loads(content)
-            return self._parse_result(result)
+        # 内容处理（不再在 try 内）
+        content = content.strip()
+        # 去除 MiniMax 思考标签
+        import re
+        content = re.sub(r'<[^>]+>', '', content)
+        # 去除 ```json ``` 代码块
+        content = re.sub(r'^```json\s*', '', content, flags=re.MULTILINE)
+        content = re.sub(r'^```\s*', '', content, flags=re.MULTILINE)
+        # 去除多余空白
+        content = content.strip()
+        # 提取 JSON
+        content = re.sub(r'^```json\s*', '', content, flags=re.MULTILINE)
+        content = re.sub(r'^```\s*', '', content, flags=re.MULTILINE)
+        content = re.sub(r'^```json\s*', '', content, flags=re.MULTILINE)
+        content = content.strip()
+        # 尝试提取 JSON 对象
+        brace_start = content.find('{')
+        brace_end = content.rfind('}')
+        if brace_start >= 0 and brace_end > brace_start:
+            content = content[brace_start:brace_end+1]
+        result = json.loads(content)
+        return self._parse_result(result)
 
-        except Exception as e:
-            print(f"LLM 分析失败: {e}")
-            return SentimentResult(
-                sentiment=SentimentType.NEUTRAL,
-                confidence=0.0,
-                reasoning=f"分析失败: {str(e)}",
-                mentioned_stocks=[],
-                key_points=[]
-            )
 
     def _build_sentiment_prompt(self, text: str, context: Optional[str]) -> str:
         """构建情感分析提示"""
