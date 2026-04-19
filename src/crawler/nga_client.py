@@ -219,7 +219,7 @@ class NGACrawler:
     
     def get_full_thread(self, tid: str, max_pages: Optional[int] = None, max_hours: int = 0) -> List[NGAPost]:
         """
-        获取完整帖子（所有页）
+        获取完整帖子（倒序，从最新页开始爬取）
         
         Args:
             tid: 帖子ID
@@ -227,7 +227,7 @@ class NGACrawler:
             max_hours: 只分析近 max_hours 内的回复，0 表示分析全部
             
         Returns:
-            所有帖子列表
+            所有帖子列表（倒序，越新的帖子排越前面）
         """
         total_pages = self.get_total_pages(tid)
         
@@ -235,28 +235,38 @@ class NGACrawler:
             total_pages = min(total_pages, max_pages)
         
         all_posts = []
+        cutoff_time = None
+        if max_hours > 0:
+            from datetime import datetime, timedelta, timezone
+            cutoff_time = datetime.now(timezone.utc) - timedelta(hours=max_hours)
         
-        print(f"帖子共 {total_pages} 页，开始爬取...")
+        # 倒序爬取：从最后一页开始，越新的帖子越先爬
+        print(f"帖子共 {total_pages} 页，开始倒序爬取（从最新页开始）...")
         
-        for page in range(1, total_pages + 1):
+        for page in range(total_pages, 0, -1):
             logger.info(f"爬取第 {page}/{total_pages} 页...")
             posts = self.get_thread(tid, page)
+            
+            # 倒序插入，保证最终列表是 page1->last 但 posts 内是旧->新
+            # 这样最终 all_posts[0] 是最后一页的最老回复，all_posts[-1] 是第一页的最新回复
             all_posts.extend(posts)
             
-            # 礼貌延迟，避免请求过快
-            if page < total_pages:
+            # 按时间过滤：一旦这页的帖子全部早于 cutoff_time，停止爬取
+            if cutoff_time:
+                page_too_old = all(
+                    (p.timestamp.timestamp() < cutoff_time.timestamp() if p.timestamp else True)
+                    for p in posts
+                )
+                if page_too_old and len(all_posts) > 0:
+                    print(f"第 {page} 页已全部早于 {max_hours}h，直接停止爬取")
+                    break
+            
+            if page > 1:
                 delay = config.nga.request_delay
                 logger.debug(f"等待 {delay} 秒...")
                 time.sleep(delay)
         
         print(f"共爬取 {len(all_posts)} 条回复")
-        
-        # 按时间过滤（如果指定了 max_hours）
-        original_count = len(all_posts)
-        all_posts = filter_posts_by_hours(all_posts, max_hours)
-        if max_hours > 0 and original_count != len(all_posts):
-            print(f"时间过滤: 只保留近 {max_hours}h 内回复 {len(all_posts)}/{original_count} 条")
-        
         return all_posts
 
 # 测试代码

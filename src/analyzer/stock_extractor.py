@@ -192,19 +192,26 @@ def get_stock_by_alias(alias: str) -> Optional[Stock]:
     通过别名查找股票
     
     Args:
-        alias: 股票别名（名称、代码或别名）
+        alias: 股票别名（名称、代码、拼音缩写或别名）
         
     Returns:
         找到的股票信息，找不到返回None
     """
     alias = alias.strip()
+    alias_upper = alias.upper()
     
-    # 直接匹配代码
+    # 1. 先查拼音缩写字典（O(1) 查找）
+    if alias_upper in PINYIN_DICT:
+        name = PINYIN_DICT[alias_upper]
+        if name in ALL_STOCKS:
+            info = ALL_STOCKS[name]
+            return Stock(name=name, code=info['code'], market=info['market'])
+    
+    # 2. 再查完整股票字典（代码或别名匹配）
     for name, info in ALL_STOCKS.items():
         if info['code'] == alias:
             return Stock(name=name, code=info['code'], market=info['market'])
-        # 检查别名
-        if alias in info.get('aliases', []):
+        if alias_upper in [a.upper() for a in info.get('aliases', [])]:
             return Stock(name=name, code=info['code'], market=info['market'])
     
     return None
@@ -260,29 +267,47 @@ def extract_stock_codes(text: str) -> List[Stock]:
 
 def extract_stock_names(text: str) -> List[Stock]:
     """
-    从文本中提取股票名称
-    
+    从文本中提取股票名称（支持中文名和拼音缩写）
+
     Args:
         text: 原始文本
-        
+
     Returns:
         股票列表
     """
     stocks = []
-    
-    # 清理文本
+    seen_names = set()  # 避免重复
+
+    # 1. 先从原始文本匹配拼音缩写（BYD、NDSD 等）
+    raw_upper = text.upper()
+    for pinyin, name in PINYIN_DICT.items():
+        if name in seen_names:
+            continue
+        pattern = r'(?<![A-Z])' + re.escape(pinyin) + r'(?![A-Z0-9])'
+        if re.search(pattern, raw_upper):
+            info = ALL_STOCKS.get(name, {})
+            stocks.append(Stock(
+                name=name,
+                code=info.get('code', ''),
+                market=info.get('market', ''),
+                mention_count=1
+            ))
+            seen_names.add(name)
+
+    # 2. 再从清理后文本匹配中文名称和代码
     cleaned = clean_text(text)
-    
+
     for name, info in ALL_STOCKS.items():
+        if name in seen_names:
+            continue
         aliases = info.get('aliases', [])
         mention_count = 0
-        
+
         for alias in aliases:
-            # 使用词边界匹配
-            pattern = r'(?<![\u4e00-\u9fa5a-zA-Z])' + re.escape(alias) + r'(?![\u4e00-\u9fa5a-zA-Z0-9])'
+            pattern = r'(?<![一-龥a-zA-Z])' + re.escape(alias) + r'(?![一-龥a-zA-Z0-9])'
             matches = re.findall(pattern, cleaned, re.IGNORECASE)
             mention_count += len(matches)
-        
+
         if mention_count > 0:
             stocks.append(Stock(
                 name=name,
@@ -290,9 +315,9 @@ def extract_stock_names(text: str) -> List[Stock]:
                 market=info['market'],
                 mention_count=mention_count
             ))
-    
-    return stocks
+            seen_names.add(name)
 
+    return stocks
 
 def extract_stocks(text: str) -> List[Stock]:
     """
@@ -351,6 +376,80 @@ def analyze_stock_mentions(posts: List[str]) -> List[Stock]:
     )
     
     return sorted_stocks
+
+# ==========================================
+# 拼音缩写股票字典
+# 股民论坛常用拼音缩写，匹配股票中文名
+# ==========================================
+PINYIN_DICT = {
+    # A股著名公司
+    "GZMT": "贵州茅台", "MZMT": "贵州茅台", "MTJJ": "贵州茅台",
+    "WLY": "五粮液",
+    "LZLJ": "泸州老窖",
+    "YHGF": "洋河股份",
+    "SXFJ": "山西汾酒",
+    "GJGJ": "古井贡酒",
+    "BYD": "比亚迪",
+    "NDSD": "宁德时代", "ND": "宁德时代",
+    "LJLN": "隆基绿能",
+    "TWGF": "通威股份",
+    "YGDY": "阳光电源",
+    "JAKJ": "晶澳科技",
+    "THGN": "天合光能",
+    "JKYN": "晶科能源",
+    "TCCL": "天赐材料",
+    "EJGF": "恩捷股份",
+    "ZSYH": "招商银行",
+    "PAYH": "平安银行",
+    "XYZH": "兴业银行",
+    "NBYH": "宁波银行",
+    "GSYH": "工商银行",
+    "JSYH": "建设银行",
+    "NYZH": "农业银行",
+    "ZXZQ": "中信证券",
+    "DFCF": "东方财富",
+    "HTZQ": "华泰证券",
+    "GTJA": "国泰君安",
+    "ZXGJ": "中芯国际",
+    "HGXX": "海光信息",
+    "BFHC": "北方华创",
+    "WEHF": "韦尔股份",
+    "ZYCX": "兆易创新",
+    "ZGGW": "紫光国微",
+    "KFXF": "科大讯飞",
+    "JSBG": "金山办公",
+    "HKSW": "海康威视",
+    "LXMJ": "立讯精密",
+    "JDFA": "京东方A",
+    "HRYY": "恒瑞医药",
+    "MRYL": "迈瑞医疗",
+    "YMKD": "药明康德",
+    "AEYK": "爱尔眼科",
+    "ZFSW": "智飞生物",
+    "MDJT": "美的集团",
+    "GLDQ": "格力电器",
+    "YLGF": "伊利股份",
+    "ZGZM": "中国中免",
+    "CCQC": "长城汽车",
+    "CAQC": "长安汽车",
+    "TXGK": "腾讯控股",
+    "ALBB": "阿里巴巴", "AL": "阿里巴巴",
+    "MT": "美团",
+    "JD": "京东",
+    "XMJT": "小米集团",
+    "WY": "网易",
+    "BD": "百度",
+    # 指数
+    "SZZS": "上证指数", "SZ": "上证指数", "沪指": "上证指数",
+    "SZCZ": "深证成指", "深成指": "深证成指",
+    "CYBZ": "创业板指", "CYB": "创业板指",
+    "KC50": "科创50", "KC": "科创50",
+    "HS300": "沪深300",
+    "HSZS": "恒生指数", "恒指": "恒生指数",
+    "NSDK": "纳斯达克", "纳指": "纳斯达克",
+    "SPX": "标普500",
+    "DJI": "道琼斯",
+}
 
 
 # 测试
