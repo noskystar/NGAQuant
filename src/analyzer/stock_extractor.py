@@ -488,13 +488,14 @@ from typing import Dict, List, Optional, Set
 _pinyin_search_cache: Dict[str, Optional['Stock']] = {}
 _stock_pinyin_map: Dict[str, 'Stock'] = {}  # name -> Stock, built lazily
 
-def _get_pinyin_abbr(name: str) -> str:
-    """获取股票名称的拼音首字母缩写"""
+def _get_pinyin_key(name: str) -> str:
+    """获取股票名称的拼音前5字符作为匹配键（减少4字首字母重复率）"""
     pinyins = _lazy_pinyin(name)
-    return ''.join(p[0].upper() if p else '' for p in pinyins if p)
+    full_pinyin = ''.join(p for p in pinyins if p)
+    return full_pinyin[:5].upper()
 
 def _build_pinyin_map():
-    """延迟加载股票拼音映射表（只执行一次）"""
+    """延迟加载股票拼音映射表（key=拼音前5字符 -> [Stock]，只执行一次）"""
     global _stock_pinyin_map
     if _stock_pinyin_map:
         return
@@ -504,50 +505,67 @@ def _build_pinyin_map():
         df = ak.stock_info_a_code_name()
         for _, row in df.iterrows():
             code = str(row['code'])
-            name = row['name']
+            name = str(row['name']).strip()
             if not name or len(code) != 6:
                 continue
             market = 'SH' if code.startswith(('6', '5', '9')) else 'SZ'
             stock = Stock(name=name, code=code, market=market)
-            abbr = _get_pinyin_abbr(name)
-            if abbr:
-                _stock_pinyin_map[abbr] = stock
-        print(f"[股票拼音库] 已加载 {len(_stock_pinyin_map)} 只股票的拼音缩写")
+            full_pinyin = ''.join(_lazy_pinyin(name)).upper()
+            key = full_pinyin[:5]
+            if key:
+                if key not in _stock_pinyin_map:
+                    _stock_pinyin_map[key] = []
+                _stock_pinyin_map[key].append(stock)
+        print(f"[股票拼音库] 已加载 {len(_stock_pinyin_map)} 只股票(去重前{len(df)}只)")
     except Exception as e:
         print(f"[股票拼音库] 加载失败: {e}")
 
-def search_unknown_pinyin(text: str, already_found: Set[str]) -> List['Stock']:
+def search_unknown_pinyin(text: str, already_found: set) -> List["Stock"]:
     """
     搜索文本中未匹配的拼音缩写股票
-    
-    Args:
-        text: 原始文本
-        already_found: 已知股票名称集合（避免重复）
-    
-    Returns:
-        新发现的股票列表
+
+    两路搜索:
+    1. ASCII字母序列(4-6位)查PINYIN_DICT已知缩写(如ZWHL、YLCM)
+    2. 中文文本转拼音后，提取5字前缀滑动窗口，查拼音映射表
     """
-    _build_pinyin_map()
-    if not _stock_pinyin_map:
-        return []
-    
     results = []
-    # 匹配连续3-6个大写字母（疑似拼音缩写）
-    candidates = _re.findall(r'(?<![A-Za-z0-9])([A-Z]{3,6})(?![A-Za-z0-9])', text.upper())
-    
-    for abbr in candidates:
+
+    # 第一路：ASCII缩写查字典
+    ascii_abbrs = re.findall(r'(?<![A-Za-z0-9])([A-Z]{4,6})(?![A-Za-z0-9])', text.upper())
+    for abbr in set(ascii_abbrs):
         if abbr in _pinyin_search_cache:
             stock = _pinyin_search_cache[abbr]
             if stock and stock.name not in already_found:
                 results.append(stock)
             continue
-        
-        # 在拼音映射中查找
-        stock = _stock_pinyin_map.get(abbr)
+        stock = PINYIN_DICT.get(abbr)
         _pinyin_search_cache[abbr] = stock
-        
         if stock and stock.name not in already_found:
             results.append(stock)
-    
+
+    # 第二路：中文转拼音，5字前缀滑动窗口匹配
+    _build_pinyin_map()
+    if not _stock_pinyin_map:
+        return results
+
+    text_pinyin = ''.join(_lazy_pinyin(text)).upper()
+
+    seen_keys = set()
+    for i in range(len(text_pinyin) - 4):
+        key = text_pinyin[i:i+5]
+        if key in seen_keys:
+            continue
+        seen_keys.add(key)
+        
+        stocks = _stock_pinyin_map.get(key, [])
+        for stock in stocks:
+            if stock.name in already_found:
+                continue
+            if stock.name not in _pinyin_search_cache:
+                _pinyin_search_cache[stock.name] = stock
+            if stock.name not in already_found:
+                results.append(stock)
+
     return results
+
 
