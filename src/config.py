@@ -9,11 +9,11 @@ from typing import Dict, Any, Optional
 from dataclasses import dataclass
 
 @dataclass
-class KimiConfig:
+class MiniMaxConfig:
     """Kimi API配置"""
     api_key: str
     base_url: str = "https://api.moonshot.cn/v1"
-    model: str = "kimi-latest"
+    model: str = "MiniMax-M2.7"
 
 @dataclass
 class FeishuConfig:
@@ -59,7 +59,7 @@ class ConfigManager:
         self._load_config()
         
         # 初始化各模块配置
-        self.kimi = self._init_kimi_config()
+        self.minimax = self._init_minimax_config()
         self.feishu = self._init_feishu_config()
         self.nga = self._init_nga_config()
         self.monitor = self._init_monitor_config()
@@ -80,17 +80,17 @@ class ConfigManager:
             else:
                 self.raw_config = {}
     
-    def _init_kimi_config(self) -> KimiConfig:
-        """初始化Kimi配置"""
-        kimi_section = self.raw_config.get('kimi', {})
+    def _init_minimax_config(self) -> MiniMaxConfig:
+        """初始化MiniMax配置"""
+        minimax_section = self.raw_config.get('minimax', {})
         
         # 优先从环境变量读取API Key
-        api_key = os.getenv('KIMI_API_KEY', kimi_section.get('api_key', ''))
+        api_key = os.getenv('MINIMAX_API_KEY', minimax_section.get('api_key', ''))
         
         return KimiConfig(
             api_key=api_key,
-            base_url=kimi_section.get('base_url', 'https://api.moonshot.cn/v1'),
-            model=kimi_section.get('model', 'kimi-latest')
+            base_url=minimax_section.get('base_url', 'http://api.minimaxi.com/v1'),
+            model=minimax_section.get('model', 'MiniMax-M2.7')
         )
     
     def _init_feishu_config(self) -> FeishuConfig:
@@ -146,8 +146,8 @@ class ConfigManager:
         """验证配置有效性，返回错误列表"""
         errors = []
         
-        if not self.kimi.api_key or self.kimi.api_key == 'your_kimi_api_key_here':
-            errors.append("Kimi API Key未设置，请设置KIMI_API_KEY环境变量或更新config.yaml")
+        if not self.minimax.api_key or self.minimax.api_key == 'your_minimax_api_key_here':
+            errors.append("MiniMax API Key未设置，请设置MINIMAX_API_KEY环境变量或更新config.yaml")
         
         return errors
 

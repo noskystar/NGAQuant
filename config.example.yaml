@@ -6,10 +6,10 @@
 # ==========================================
 
 # Kimi API (用于情感分析)
-kimi:
-  api_key: "your_kimi_api_key_here"  # 从 https://platform.moonshot.cn/ 获取
-  base_url: "https://api.moonshot.cn/v1"
-  model: "kimi-latest"  # 或 kimi-k2-0711
+minimax:
+  api_key: "your_minimax_api_key_here"  # 从 https://platform.moonshot.cn/ 获取
+  base_url: "http://api.minimaxi.com/v1"
+  model: "MiniMax-M2.7"  # 或 kimi-k2-0711
 
 # ==========================================
 # 飞书机器人 (用于推送通知)
