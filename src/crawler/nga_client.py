@@ -199,13 +199,14 @@ class NGACrawler:
             logger.error(f"获取页数失败 tid={tid}: {e}")
             return 1
     
-    def get_full_thread(self, tid: str, max_pages: Optional[int] = None) -> List[NGAPost]:
+    def get_full_thread(self, tid: str, max_pages: Optional[int] = None, max_hours: int = 0) -> List[NGAPost]:
         """
         获取完整帖子（所有页）
         
         Args:
             tid: 帖子ID
             max_pages: 最大页数限制
+            max_hours: 只分析近 max_hours 内的回复，0 表示分析全部
             
         Returns:
             所有帖子列表
@@ -231,6 +232,13 @@ class NGACrawler:
                 time.sleep(delay)
         
         print(f"共爬取 {len(all_posts)} 条回复")
+        
+        # 按时间过滤（如果指定了 max_hours）
+        original_count = len(all_posts)
+        all_posts = filter_posts_by_hours(all_posts, max_hours)
+        if max_hours > 0 and original_count != len(all_posts):
+            print(f"时间过滤: 只保留近 {max_hours}h 内回复 {len(all_posts)}/{original_count} 条")
+        
         return all_posts
 
 # 测试代码
@@ -248,3 +256,28 @@ if __name__ == "__main__":
         print(f"作者: {post.author}")
         print(f"内容: {post.content[:100]}...")
         print("-" * 50)
+
+
+def filter_posts_by_hours(posts: List[NGAPost], max_hours: int) -> List[NGAPost]:
+    """
+    按时间过滤帖子，只保留近 max_hours 内的回复
+    
+    Args:
+        posts: 帖子列表
+        max_hours: 最大小时数，0 表示不过滤
+        
+    Returns:
+        过滤后的帖子列表
+    """
+    if max_hours <= 0:
+        return posts
+    
+    now = datetime.now()
+    cutoff = now.timestamp() - max_hours * 3600
+    
+    filtered = []
+    for post in posts:
+        if post.timestamp.timestamp() >= cutoff:
+            filtered.append(post)
+    
+    return filtered

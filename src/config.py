@@ -38,6 +38,7 @@ class MonitorConfig:
 class AnalysisConfig:
     """分析配置"""
     default_max_pages: int = 5
+    max_hours: int = 72  # 只分析近 N 小时内的新回复，0 表示分析全部
     min_confidence: float = 0.6
     top_stocks_limit: int = 10
 
@@ -87,7 +88,7 @@ class ConfigManager:
         # 优先从环境变量读取API Key
         api_key = os.getenv('MINIMAX_API_KEY', minimax_section.get('api_key', ''))
         
-        return KimiConfig(
+        return MiniMaxConfig(
             api_key=api_key,
             base_url=minimax_section.get('base_url', 'http://api.minimaxi.com/v1'),
             model=minimax_section.get('model', 'MiniMax-M2.7')
@@ -128,6 +129,7 @@ class ConfigManager:
         
         return AnalysisConfig(
             default_max_pages=analysis_section.get('default_max_pages', 5),
+            max_hours=analysis_section.get('max_hours', 72),
             min_confidence=analysis_section.get('min_confidence', 0.6),
             top_stocks_limit=analysis_section.get('top_stocks_limit', 10)
         )

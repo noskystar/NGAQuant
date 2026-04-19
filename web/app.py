@@ -143,12 +143,19 @@ def render_sidebar():
         # 分析参数
         st.subheader("📊 分析参数")
         max_pages = st.slider("最大页数", 1, 20, 5)
+        max_hours = st.select_slider(
+            "时间范围",
+            options=[0, 24, 48, 72, 168],
+            value=72,
+            format_func=lambda x: "全部" if x == 0 else f"近 {x} 小时"
+        )
         min_confidence = st.slider("最低置信度", 0.0, 1.0, 0.6)
         
         return {
             'api_key': api_key,
             'nga_cookie': nga_cookie,
             'max_pages': max_pages,
+            'max_hours': max_hours,
             'min_confidence': min_confidence
         }
 
@@ -281,7 +288,11 @@ def render_analysis_section(config: Dict):
         with st.spinner("正在爬取帖子..."):
             try:
                 crawler = NGACrawler(cookie=config.get('nga_cookie', ''))
-                posts = crawler.get_full_thread(tid, max_pages=config.get('max_pages', 5))
+                posts = crawler.get_full_thread(
+                    tid,
+                    max_pages=config.get('max_pages', 5),
+                    max_hours=config.get('max_hours', 72)
+                )
                 
                 if not posts:
                     st.error("未爬取到帖子，请检查 TID 是否正确，或尝试配置 Cookie")
