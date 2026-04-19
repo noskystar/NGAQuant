@@ -178,45 +178,33 @@ class NGACrawler:
     def get_total_pages(self, tid: str) -> int:
         """获取帖子总页数"""
         url = f"{self.BASE_URL}/read.php?tid={tid}"
-        
+
         try:
             response = self._fetch_page(url)
-            
-            # 查找页数信息
-            soup = BeautifulSoup(response.text, 'html.parser')
-            
-            # 尝试多种选择器
-            page_info = soup.select_one('.pager, .pagination, .page')
-            
-            if page_info:
-                # 方法1: 从分页链接中提取最大页码
-                page_links = page_info.find_all('a')
-                max_page = 1
-                for link in page_links:
-                    text = link.get_text(strip=True)
-                    if text.isdigit():
-                        max_page = max(max_page, int(text))
-                
-                if max_page > 1:
-                    return max_page
-                
-                # 方法2: 正则匹配
-                page_match = re.search(r'(\d+)</a>\s*<a[^>]*>下一页', str(page_info))
-                if page_match:
-                    return int(page_match.group(1))
-            
-            # 方法3: 从帖子数量估算
-            posts = self._parse_posts(response.text, tid)
-            if len(posts) >= 20:  # 每页通常20条
-                # 可能有更多页，但先返回1，让调用方决定
-                pass
-            
+            html = response.text
+
+            # 方法1: 从 JavaScript __PAGE 变量中提取（如 __PAGE = {0:..., 1:4031, 2:1, 3:20}）
+            page_match = re.search(r'__PAGE\s*=\s*\{[^}]*1:(\d+)', html)
+            if page_match:
+                total = int(page_match.group(1))
+                if total > 1:
+                    return total
+
+            # 方法2: 从URL中直接提取最大页码
+            pages_in_url = re.findall(r'[?&]page=(\d+)', html)
+            if pages_in_url:
+                return max(int(p) for p in pages_in_url)
+
+            # 方法3: 从分页文本中找 "下一页(N)"
+            next_pages = re.findall(r'下一页\((\d+)\)', html)
+            if next_pages:
+                return max(int(p) for p in next_pages)
+
             return 1
-            
+
         except Exception as e:
             logger.error(f"获取页数失败 tid={tid}: {e}")
             return 1
-    
     def get_full_thread(self, tid: str, max_pages: Optional[int] = None, max_hours: int = 0) -> List[NGAPost]:
         """
         获取完整帖子（倒序，从最新页开始爬取）
