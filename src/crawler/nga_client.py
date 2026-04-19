@@ -47,7 +47,7 @@ class NGACrawler:
     def _fetch_page(self, url: str) -> requests.Response:
         """获取页面内容（带重试）"""
         response = self.session.get(url, timeout=config.nga.timeout)
-        response.encoding = 'utf-8'
+        response.encoding = 'GB18030'
         return response
     
     def get_thread(self, tid: str, page: int = 1) -> List[NGAPost]:
@@ -85,66 +85,84 @@ class NGACrawler:
         soup = BeautifulSoup(html, 'html.parser')
         posts = []
         
-        # NGA帖子选择器 - 尝试多种可能的选择器
-        post_elements = soup.select('.postbox, .forumbox .c0, .plc, .postcontent')
+        # 只选择 .postbox（每个帖子是一个 table.postbox）
+        post_elements = soup.select('table.postbox')
         
-        # 如果没找到，尝试更通用的选择
+        # 如果没找到，尝试备选选择器
         if not post_elements:
-            # 尝试查找包含用户内容的div
-            post_elements = soup.find_all(['div', 'td'], class_=lambda x: x and ('post' in x.lower() or 'content' in x.lower()))
+            post_elements = soup.select('.forumbox')
         
         logger.debug(f"找到 {len(post_elements)} 个帖子元素")
         
-        for idx, element in enumerate(post_elements):
+        for element in post_elements:
             try:
-                # 提取作者 - 尝试多种选择器
-                author_elem = (
-                    element.select_one('.author, .postauthor, .auth') or
-                    element.find_previous(['div', 'td'], class_=lambda x: x and 'author' in str(x).lower())
-                )
-                author = author_elem.get_text(strip=True) if author_elem else f"用户{idx}"
+                # 从 row id 提取实际楼层号
+                row_elem = element.select_one('tr.postrow')
+                row_id = row_elem.get('id', '') if row_elem else ''
+                floor_match = re.search(r'row(\d+)$', row_id)
+                floor = int(floor_match.group(1)) + 1 if floor_match else 0
                 
-                # 提取内容 - 尝试多种选择器
-                content_elem = (
-                    element.select_one('.postcontent, .forumbox_main, .txtstyle, .message') or
-                    element
-                )
+                # 提取作者 - NGA用户名由JS渲染，优先取uid作为标识
+                author_elem = element.select_one('a.author')
+                if author_elem:
+                    author = author_elem.get('href', '')
+                    uid_match = re.search(r'uid=(\d+)', author)
+                    author = f"uid-{uid_match.group(1)}" if uid_match else author_elem.get_text(strip=True) or f"用户{floor}"
+                else:
+                    author = f"用户{floor}"
+                
+                # 提取内容 - 每个 postbox 里的 .c2 单元格
+                content_elem = element.select_one('.c2')
+                if not content_elem:
+                    content_elem = element.select_one('.postcontent, .txtstyle')
                 content = content_elem.get_text('\n', strip=True) if content_elem else ""
                 
                 # 清理内容
+                content = re.sub(r'\[[^\]]+\]', '', content)  # 去除 [s:ac:xxx] 等NGA标签
+                content = re.sub(r'\[url\].*?\[/url\]', '', content, flags=re.DOTALL)  # 去除URL标签
+                content = re.sub(r'\[quote\].*?\[/quote\]', '', content, flags=re.DOTALL)  # 去除引用
+                content = re.sub(r'\[tid=.*?\[/tid\]', '', content)  # 去除引用楼层标签
+                content = re.sub(r'\[b\].*?\[/b\]', '', content)  # 去除加粗标签
                 content = re.sub(r'\n+', '\n', content)  # 合并多余换行
                 content = content.strip()
                 
-                # 提取时间 - 尝试多种选择器
-                time_elem = (
-                    element.select_one('.postdate, .author .silver, .time') or
-                    element.find_previous(string=re.compile(r'\d{4}-\d{2}-\d{2}'))
-                )
+                # 去除开头的时间戳（如 "2026-01-12 09:05\n"）
+                content = re.sub(r'^\d{4}-\d{2}-\d{2} \d{2}:\d{2}\s*', '', content)
                 
+                # 跳过太短的内容（可能是引用楼层或空楼层）
+                if len(content) < 3:
+                    continue
+                
+                # 提取时间 - 从 .c2 内容的开头提取时间戳
                 timestamp = datetime.now()
-                if time_elem:
-                    if hasattr(time_elem, 'text'):
-                        timestamp = self._parse_time(time_elem.text)
-                    else:
-                        timestamp = self._parse_time(str(time_elem))
+                if content_elem:
+                    raw_text = content_elem.get_text()
+                    time_match = re.search(r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2})', raw_text)
+                    if time_match:
+                        timestamp = self._parse_time(time_match.group(1))
                 
-                # 提取UID
-                uid_match = re.search(r'uid=(\d+)', str(element))
-                author_uid = uid_match.group(1) if uid_match else "0"
+                # 提取UID - 从 a.author 的 href 中提取
+                author_uid = "0"
+                if author_elem:
+                    href = author_elem.get('href', '')
+                    uid_m = re.search(r'uid=(\d+)', href)
+                    if uid_m:
+                        author_uid = uid_m.group(1)
+                        author = f"uid-{author_uid}"
                 
                 post = NGAPost(
-                    post_id=f"{tid}_{idx}",
+                    post_id=f"{tid}_{floor}",
                     author=author,
                     author_uid=author_uid,
                     content=content,
                     timestamp=timestamp,
-                    floor=idx + 1,
-                    is_main_post=(idx == 0)
+                    floor=floor,
+                    is_main_post=(floor == 1)
                 )
                 posts.append(post)
                 
             except Exception as e:
-                logger.warning(f"解析第 {idx} 个帖子失败: {e}")
+                logger.warning(f"解析第 {floor} 个帖子失败: {e}")
                 continue
         
         return posts

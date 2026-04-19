@@ -89,6 +89,11 @@ class LLMClient:
             if content.startswith("```"):
                 lines = content.split("\n")
                 content = "\n".join(lines[1:-1])
+            # 只取第一个 JSON 对象
+            brace_start = content.find('{')
+            brace_end = content.rfind('}')
+            if brace_start >= 0 and brace_end > brace_start:
+                content = content[brace_start:brace_end+1]
             result = json.loads(content)
             return self._parse_result(result)
 
