@@ -75,11 +75,11 @@ def init_session_state():
         st.session_state.current_tid = None
     if 'config' not in st.session_state:
         st.session_state.config = None
-    if 'kimi_client' not in st.session_state:
-        st.session_state.kimi_client = None
+    if 'llm_client' not in st.session_state:
+        st.session_state.llm_client = None
 
 
-def get_kimi_client(api_key: str) -> LLMClient:
+def get_llm_client(api_key: str) -> LLMClient:
     """获取或创建 Kimi 客户端"""
     if not api_key:
         return None
@@ -102,19 +102,19 @@ def render_sidebar():
         st.title("⚙️ 配置")
         
         # API Key 配置
-        st.subheader("🔑 Kimi API Key")
+        st.subheader("🔑 MiniMax API Key")
         api_key = st.text_input(
             "输入 API Key",
             type="password",
-            help="从 https://platform.moonshot.cn/ 获取",
+            help="从 https://api.minimaxi.com/ 获取",
             placeholder="sk-..."
         )
         
         if api_key:
-            st.session_state.kimi_client = get_kimi_client(api_key)
+            st.session_state.llm_client = get_llm_client(api_key)
             st.success("✅ API Key 已配置")
         else:
-            st.warning("⚠️ 请输入 Kimi API Key 才能进行情感分析")
+            st.warning("⚠️ 请输入 MiniMax API Key 才能进行情感分析")
         
         # 加载配置
         try:
@@ -263,6 +263,137 @@ def render_stock_chart(top_stocks: List[tuple]):
     st.plotly_chart(fig, use_container_width=True)
 
 
+
+def render_stock_radar(results: Dict, top_stocks: List[tuple]):
+    """渲染股票推荐雷达图"""
+    if not top_stocks:
+        return
+    
+    # 取前5只股票，每只计算"推荐度"
+    # 推荐度 = (看涨帖子中提及该股次数 * 1.0 + 中性 * 0.3 - 看跌 * 0.5) / 总帖子数
+    # 这里简化为：提及次数 * 情绪指数/100
+    bullish = results.get('bullish_ratio', 0)
+    emotion = results.get('emotion_index', 50) / 100
+    
+    names = [s[0] for s in top_stocks[:6]]
+    mentions = [s[1] for s in top_stocks[:6]]
+    
+    # 推荐度得分（0-100）
+    scores = [int(m * emotion * 10) for m in mentions]
+    # 最低10分
+    scores = [max(s, 10) for s in scores]
+    
+    fig = go.Figure()
+    fig.add_trace(go.Scatterpolar(
+        r=scores + [scores[0]],
+        theta=names + [names[0]],
+        fill='toself',
+        fillcolor='rgba(31, 119, 180, 0.3)',
+        line=dict(color='#1f77b4'),
+        marker=dict(size=6),
+        name='推荐度'
+    ))
+    fig.update_layout(
+        polar=dict(
+            radialaxis=dict(visible=True, range=[0, 100])
+        ),
+        height=300,
+        title="股票推荐度雷达图",
+        showlegend=False,
+        margin=dict(l=20, r=20, t=40, b=20)
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+
+def render_sentiment_bubble(results: Dict, posts: List):
+    """渲染情感气泡图（按楼层分布）"""
+    # 使用 session state 中的原始分析结果
+    analysis = st.session_state.get('analysis_results', {})
+    
+    bubble_data = []
+    for i, r in enumerate(analysis.get('post_results', [])):
+        sentiment = r.get('sentiment', 'neutral')
+        confidence = r.get('confidence', 0.5)
+        floor = r.get('floor', i * 10)
+        
+        if sentiment == '看涨' or sentiment == '轻度看涨':
+            val, color = 1, '#ff4b4b'
+        elif sentiment == '看跌' or sentiment == '轻度看跌':
+            val, color = -1, '#00b4d8'
+        else:
+            val, color = 0, '#808080'
+        
+        bubble_data.append({
+            'floor': floor,
+            'value': val,
+            'confidence': confidence,
+            'color': color,
+            'sentiment': sentiment
+        })
+    
+    if not bubble_data:
+        return
+    
+    df = pd.DataFrame(bubble_data)
+    
+    fig = go.Figure()
+    colors_map = {'看涨': '#ff4b4b', '轻度看涨': '#ff9999', '中性': '#808080', '轻度看跌': '#99ccff', '看跌': '#00b4d8'}
+    
+    for sent, grp in df.groupby('sentiment'):
+        fig.add_trace(go.Scatter(
+            x=grp['floor'],
+            y=grp['value'],
+            mode='markers',
+            marker=dict(size=grp['confidence'] * 30 + 5, color=colors_map.get(sent, '#808080')),
+            name=sent,
+            text=[f"#{f} {s}" for f, s in zip(grp['floor'], grp['sentiment'])],
+            hovertemplate="#%{text}<br>情绪: %{marker.color}<extra></extra>"
+        ))
+    
+    fig.update_layout(
+        height=250,
+        xaxis_title="楼层",
+        yaxis_title="情绪（红=看涨 蓝=看跌）",
+        yaxis=dict(range=[-1.5, 1.5], tickvals=[-1, 0, 1], ticktext=['看跌', '中性', '看涨']),
+        margin=dict(l=20, r=20, t=30, b=40),
+        showlegend=True
+    )
+    st.plotly_chart(fig, use_container_width=True)
+
+
+def render_stock_cards(top_stocks: List[tuple], results: Dict):
+    """渲染股票推荐卡片"""
+    if not top_stocks:
+        return
+    
+    bullish = results.get('bullish_ratio', 0)
+    emotion = results.get('emotion_index', 50)
+    
+    for name, count in top_stocks[:8]:
+        # 计算推荐度得分
+        score = int(count * emotion / 10)
+        score = max(10, min(100, score))
+        
+        if score >= 70:
+            tag, tag_color = "🔥 强烈推荐", "#ff4b4b"
+        elif score >= 50:
+            tag, tag_color = "✅ 谨慎关注", "#ffaa00"
+        else:
+            tag, tag_color = "👀 观察", "#808080"
+        
+        with st.container():
+            col1, col2, col3 = st.columns([3, 1, 1])
+            with col1:
+                st.markdown(f"**{name}**")
+            with col2:
+                st.markdown(f'<span style="color:{tag_color};font-weight:bold">{tag}</span>', unsafe_allow_html=True)
+            with col3:
+                st.markdown(f"提及 **{count}** 次")
+            st.markdown("---")
+
+
+
+
 # ==================== 分析主界面 ====================
 def render_analysis_section(config: Dict):
     """渲染分析主界面"""
@@ -281,8 +412,8 @@ def render_analysis_section(config: Dict):
         analyze_btn = st.button("🚀 开始分析", type="primary", use_container_width=True)
     
     if analyze_btn and tid:
-        if not st.session_state.kimi_client:
-            st.error("请先在侧边栏配置 Kimi API Key")
+        if not st.session_state.llm_client:
+            st.error("请先在侧边栏配置 MiniMax API Key")
             return
         
         with st.spinner("正在爬取帖子..."):
@@ -317,7 +448,7 @@ def render_analysis_section(config: Dict):
                 status_text = st.empty()
                 
                 for i, text in enumerate(texts):
-                    result = st.session_state.kimi_client.analyze_sentiment(text)
+                    result = st.session_state.llm_client.analyze_sentiment(text)
                     results.append(result)
                     progress_bar.progress((i + 1) / len(texts))
                     status_text.text(f"分析第 {i+1}/{len(texts)} 条帖子...")
@@ -325,6 +456,12 @@ def render_analysis_section(config: Dict):
                 # 聚合结果
                 aggregated = SentimentAggregator.aggregate(results)
                 st.session_state.analysis_results = aggregated
+                
+                # 保存每条帖子的情感结果（用于气泡图）
+                aggregated['post_results'] = [
+                    {'floor': posts[i].floor, 'sentiment': r.sentiment.value, 'confidence': r.confidence}
+                    for i, r in enumerate(results) if i < len(posts)
+                ]
                 
                 # 提取股票
                 all_text = "\n".join(texts)
@@ -389,7 +526,15 @@ def render_results():
     st.subheader("📈 热门股票")
     
     if results.get('top_stocks'):
-        render_stock_chart(results['top_stocks'])
+        # 股票推荐卡片（横向排列）
+        render_stock_cards(results['top_stocks'], results)
+        
+        # 两列：柱状图 + 雷达图
+        col_bar, col_radar = st.columns(2)
+        with col_bar:
+            render_stock_chart(results['top_stocks'])
+        with col_radar:
+            render_stock_radar(results, results['top_stocks'])
         
         # 股票标签展示
         st.markdown("**股票标签：**")
@@ -398,7 +543,11 @@ def render_results():
             stock_tags += f'<span class="stock-tag">{name} ({count})</span>'
         st.markdown(stock_tags, unsafe_allow_html=True)
     else:
-        st.info("未提取到股票信息")
+        st.info("未提取到股票信息，请尝试在帖子内容中包含股票代码或名称")
+    
+    # 情感气泡图
+    st.subheader("📊 情感分布（按楼层）")
+    render_sentiment_bubble(results, posts)
     
     st.divider()
     
@@ -459,7 +608,7 @@ def render_help():
         ## NGAQuant 使用指南
         
         ### 第一步：获取 API Key
-        1. 访问 [Moonshot 控制台](https://platform.moonshot.cn/)
+        1. 访问 [MiniMax 控制台](https://api.minimaxi.com/)
         2. 注册/登录账号
         3. 在「API Keys」中创建一个新的 API Key
         4. 复制并粘贴到左侧配置栏
