@@ -129,8 +129,9 @@ class TestFilterPostsByHours:
             NGAPost("2", "a", "1", "x", now, 2, False),
         ]
         result = filter_posts_by_hours(posts, 1)
-        assert len(result) == 1
-        assert result[0].floor == 2
+        assert len(result) == 2
+        assert result[0].floor == 1
+        assert result[1].floor == 2
 
     def test_all_posts_within_range(self):
         """全部在时间范围内时原样返回"""
@@ -143,7 +144,7 @@ class TestFilterPostsByHours:
         assert len(result) == 2
 
     def test_mixed_posts(self):
-        """混有新旧帖子时只保留新的"""
+        """混有新旧帖子时保留新的和 None 时间戳的"""
         now = datetime.now(timezone.utc)
         posts = [
             NGAPost("1", "a", "1", "x", now - timedelta(hours=3), 1, False),
@@ -151,5 +152,6 @@ class TestFilterPostsByHours:
             NGAPost("3", "a", "1", "x", None, 3, False),
         ]
         result = filter_posts_by_hours(posts, 1)
-        assert len(result) == 1
+        assert len(result) == 2
         assert result[0].floor == 2
+        assert result[1].floor == 3

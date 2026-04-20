@@ -169,11 +169,14 @@ class NGACrawler:
     
     def _parse_time(self, time_str: str) -> Optional[datetime]:
         """解析时间字符串。解析失败返回 None（避免 datetime.now() 导致 max_hours 过滤失效）"""
-        # NGA时间格式: 2024-01-15 14:30:00
-        try:
-            return datetime.strptime(time_str.strip(), '%Y-%m-%d %H:%M:%S')
-        except:
-            return None
+        # NGA时间格式: 2024-01-15 14:30:00 或 2024-01-15 14:30
+        time_str = time_str.strip()
+        for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M'):
+            try:
+                return datetime.strptime(time_str, fmt)
+            except ValueError:
+                pass
+        return None
     
     def get_total_pages(self, tid: str) -> int:
         """获取帖子总页数"""
@@ -295,7 +298,7 @@ def filter_posts_by_hours(posts: List[NGAPost], max_hours: int) -> List[NGAPost]
     
     filtered = []
     for post in posts:
-        if post.timestamp is not None and post.timestamp.timestamp() >= cutoff:
+        if post.timestamp is None or post.timestamp.timestamp() >= cutoff:
             filtered.append(post)
-    
+
     return filtered
