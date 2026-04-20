@@ -20,6 +20,7 @@ from src.crawler.nga_client import NGACrawler, NGAPost
 from src.analyzer.sentiment import LLMClient, SentimentAggregator, SentimentType
 from src.analyzer.stock_extractor import extract_stocks, analyze_stock_mentions, Stock
 from src.config import ConfigManager
+from src.watchlist import WatchlistManager
 
 # ==================== 页面配置 ====================
 st.set_page_config(
@@ -77,6 +78,10 @@ def init_session_state():
         st.session_state.config = None
     if 'llm_client' not in st.session_state:
         st.session_state.llm_client = None
+    if 'watchlist' not in st.session_state:
+        st.session_state.watchlist = WatchlistManager.load()
+    if 'watchlist_refresh' not in st.session_state:
+        st.session_state.watchlist_refresh = 0
 
 
 def get_llm_client(api_key: str) -> LLMClient:
@@ -99,8 +104,30 @@ def parse_posts_for_analysis(posts: List[NGAPost]) -> List[str]:
 def render_sidebar():
     """渲染侧边栏配置"""
     with st.sidebar:
+        # ==================== 关注帖子 ====================
+        st.title("⭐ 关注帖子")
+
+        # 刷新关注列表
+        watchlist = WatchlistManager.load()
+
+        if watchlist:
+            for tid in watchlist:
+                col_tid, col_del = st.columns([3, 1])
+                with col_tid:
+                    if st.button(f"📌 {tid}", key=f"watch_tid_{tid}", use_container_width=True):
+                        st.session_state.current_tid = tid
+                        st.rerun()
+                with col_del:
+                    if st.button("❌", key=f"watch_del_{tid}"):
+                        WatchlistManager.remove(tid)
+                        st.rerun()
+        else:
+            st.info("暂无关注的帖子")
+
+        st.divider()
+
         st.title("⚙️ 配置")
-        
+
         # API Key 配置
         st.subheader("🔑 MiniMax API Key")
         api_key = st.text_input(
@@ -401,8 +428,11 @@ def render_analysis_section(config: Dict):
     
     col1, col2 = st.columns([3, 1])
     with col1:
+        # 支持从 session state 填入（通过侧边栏点击关注列表）
+        default_tid = st.session_state.get('current_tid', "")
         tid = st.text_input(
             "📝 输入 NGA 帖子 ID (tid)",
+            value=default_tid,
             placeholder="例如: 25914502",
             help="从帖子 URL 中提取，例如 https://bbs.nga.cn/read.php?tid=25914502"
         )
@@ -490,9 +520,21 @@ def render_results():
     results = st.session_state.analysis_results
     posts = st.session_state.posts
     
+    # 关注按钮
+    current_tid = st.session_state.get('current_tid')
+    if current_tid:
+        watchlist = WatchlistManager.load()
+        if current_tid not in watchlist:
+            if st.button("⭐ 关注此帖", type="secondary"):
+                WatchlistManager.add(current_tid)
+                st.success(f"已关注帖子 {current_tid}")
+                st.rerun()
+        else:
+            st.info(f"✅ 已关注帖子 {current_tid}")
+
     st.divider()
     st.header("📊 分析结果")
-    
+
     # 概览指标
     col1, col2, col3, col4, col5 = st.columns(5)
     
