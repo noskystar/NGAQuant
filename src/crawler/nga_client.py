@@ -7,7 +7,7 @@ import time
 import re
 from typing import List, Dict, Optional
 from dataclasses import dataclass
-from datetime import datetime
+from datetime import datetime, timedelta
 from tenacity import retry, stop_after_attempt, wait_exponential, retry_if_exception_type
 
 from src.utils.logger import logger
@@ -207,54 +207,55 @@ class NGACrawler:
             return 1
     def get_full_thread(self, tid: str, max_pages: Optional[int] = None, max_hours: int = 0) -> List[NGAPost]:
         """
-        获取完整帖子（倒序，从最新页开始爬取）
-        
+        获取完整帖子（从最新页开始倒序爬取）
+
         Args:
             tid: 帖子ID
-            max_pages: 最大页数限制
-            max_hours: 只分析近 max_hours 内的回复，0 表示分析全部
-            
+            max_pages: 最大页数限制（从最后一页往前数）
+            max_hours: 只分析近 max_hours 内的回复，0 表示不过滤
+
         Returns:
-            所有帖子列表（倒序，越新的帖子排越前面）
+            所有帖子列表（按楼层号升序排列，越新的在后面）
         """
         total_pages = self.get_total_pages(tid)
-        
-        if max_pages:
-            total_pages = min(total_pages, max_pages)
-        
+
+        # 计算爬取范围：从最后一页往前取 max_pages 页
+        start_page = total_pages
+        end_page = 1
+        if max_pages and max_pages > 0:
+            end_page = max(1, total_pages - max_pages + 1)
+
         all_posts = []
         cutoff_time = None
         if max_hours > 0:
-            from datetime import datetime, timedelta, timezone
+            from datetime import timezone
             cutoff_time = datetime.now(timezone.utc) - timedelta(hours=max_hours)
-        
-        # 倒序爬取：从最后一页开始，越新的帖子越先爬
-        print(f"帖子共 {total_pages} 页，开始倒序爬取（从最新页开始）...")
-        
-        for page in range(total_pages, 0, -1):
+
+        print(f"帖子共 {total_pages} 页，从第 {start_page} 页倒序爬取至第 {end_page} 页...")
+
+        for page in range(start_page, end_page - 1, -1):
             logger.info(f"爬取第 {page}/{total_pages} 页...")
             posts = self.get_thread(tid, page)
-            
-            # 倒序插入，保证最终列表是 page1->last 但 posts 内是旧->新
-            # 这样最终 all_posts[0] 是最后一页的最老回复，all_posts[-1] 是第一页的最新回复
+
             all_posts.extend(posts)
-            
-            # 按时间过滤：一旦这页的帖子全部早于 cutoff_time，停止爬取
-            if cutoff_time:
-                page_too_old = all(
-                    (p.timestamp.timestamp() < cutoff_time.timestamp() if p.timestamp else True)
-                    for p in posts
-                )
-                if page_too_old and len(all_posts) > 0:
-                    print(f"第 {page} 页已全部早于 {max_hours}h，直接停止爬取")
+
+            # Early-break: 用该页最新帖子（楼层号最大）判断整页是否已超时
+            if cutoff_time and posts:
+                latest_post = max(posts, key=lambda p: p.floor)
+                if latest_post.timestamp is not None and latest_post.timestamp.timestamp() < cutoff_time.timestamp():
+                    print(f"第 {page} 页最新帖子已早于 {max_hours}h，停止爬取")
                     break
-            
-            if page > 1:
+
+            if page > end_page:
                 delay = config.nga.request_delay
                 logger.debug(f"等待 {delay} 秒...")
                 time.sleep(delay)
-        
-        print(f"共爬取 {len(all_posts)} 条回复")
+
+        # 按时间过滤
+        if max_hours > 0:
+            all_posts = filter_posts_by_hours(all_posts, max_hours)
+
+        print(f"共爬取 {len(all_posts)} 条回复（已过滤）")
         return all_posts
 
 # 测试代码
@@ -287,8 +288,9 @@ def filter_posts_by_hours(posts: List[NGAPost], max_hours: int) -> List[NGAPost]
     """
     if max_hours <= 0:
         return posts
-    
-    now = datetime.now()
+
+    from datetime import timezone
+    now = datetime.now(timezone.utc)
     cutoff = now.timestamp() - max_hours * 3600
     
     filtered = []
