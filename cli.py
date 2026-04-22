@@ -16,6 +16,9 @@ from analyzer.sentiment import LLMClient, SentimentAggregator
 from config import config
 from history.manager import HistoryManager
 from history.trend import EmotionTrend
+from recommender.engine import RecommenderEngine
+from recommender.models import StrategyType, SignalType
+from signals.manager import SignalManager
 import json
 from datetime import datetime
 
@@ -179,6 +182,90 @@ class NGAQuantCLI:
         
         print(f"\n💾 结果已保存: {filename}")
 
+    def recommend(self, tid_list=None, strategy=StrategyType.SHORT, limit=10, save=False):
+        """
+        基于历史情绪数据生成股票推荐信号
+
+        Args:
+            tid_list: 帖子ID列表（从历史记录读取）
+            strategy: SHORT 或 MID
+            limit: 返回信号数量
+            save: 是否保存信号
+        """
+        print(f"🎯 生成{'短线' if strategy == StrategyType.SHORT else '中线'}推荐信号...")
+        print(f"   策略权重: 情绪×{'0.45' if strategy == StrategyType.SHORT else '0.55'} + 价格×{'0.55' if strategy == StrategyType.SHORT else '0.45'}")
+        print()
+
+        # 默认帖子列表
+        default_tids = ["45974302", "45502551", "44279886"]
+        tids = tid_list or default_tids
+
+        # 收集历史数据
+        history = HistoryManager()
+        posts_data = []
+        for tid in tids:
+            records = history.list_records(tid=tid.strip(), limit=5)
+            if not records:
+                print(f"⚠️  帖子 {tid} 无历史记录，跳过")
+                continue
+            latest = records[0]
+            # 情绪趋势（近3次）
+            emotion_trend = [r.emotion.emotion_index for r in records[:3]]
+            # 热门股票
+            top_stocks = [{"name": s.name, "code": s.code, "mention_count": s.mention_count}
+                          for s in latest.top_stocks[:20]]
+            posts_data.append({
+                "tid": tid,
+                "emotion_index": latest.emotion.emotion_index,
+                "emotion_trend_3d": emotion_trend,
+                "top_stocks": top_stocks,
+            })
+            print(f"  ✅ {tid}: 情绪 {latest.emotion.emotion_index:.1f}，{len(top_stocks)} 只热门股")
+
+        if not posts_data:
+            print("❌ 没有可用的历史数据，请先运行 analyze")
+            return
+
+        # 生成信号
+        engine = RecommenderEngine()
+        signals = engine.generate_all_signals(posts_data, strategy=strategy)
+        active = [s for s in signals if s.is_active][:limit]
+
+        if not active:
+            print("📭 暂无符合条件的推荐信号")
+            return
+
+        # 打印信号
+        strategy_label = "短线" if strategy == StrategyType.SHORT else "中线"
+        print(f"\n{'='*70}")
+        print(f"🎯 {strategy_label}推荐信号（生成于 {datetime.now().strftime('%Y-%m-%d %H:%M')}）")
+        print(f"{'='*70}")
+        print(f"{'排名':<4} {'股票':<10} {'代码':<8} {'信号':<6} {'强度':<8} {'情绪分':<8} {'价格分':<8} {'综合分':<8} {'来源'}")
+        print(f"{'-'*70}")
+
+        for i, sig in enumerate(active, 1):
+            emoji = sig.emoji
+            strength_color = {"STRONG": "🔥", "MODERATE": "📈", "WEAK": "📊"}.get(sig.strength.value, "")
+            valid = sig.valid_until.strftime("%m-%d")
+            print(f"{i:<4} {emoji}{sig.stock_name:<8} {sig.stock_code:<8} {sig.signal_type.value:<6} "
+                  f"{strength_color}{sig.strength.value:<6} "
+                  f"{sig.emotion_index:>5.1f}   {sig.price_factor:>5.1f}   "
+                  f"{sig.composite_score:>5.1f}   {sig.source_tid}")
+
+        print(f"\n💡 信号说明:")
+        for sig in active[:5]:
+            reason_summary = sig.reason.get('trigger', '')
+            if 'emotion_reason' in sig.reason:
+                reason_summary += f" - {sig.reason['emotion_reason'][:50]}"
+            print(f"  {sig.emoji}{sig.stock_name}: {reason_summary}")
+
+        if save:
+            mgr = SignalManager()
+            paths = mgr.save_batch(active)
+            print(f"\n💾 已保存 {len(paths)} 个信号到 data/signals/")
+
+        print(f"\n⚠️  风险提示: 所有信号仅供学习研究，不构成投资建议")
+
 
 def main():
     parser = argparse.ArgumentParser(
@@ -232,7 +319,14 @@ def main():
     trend_parser = history_sub.add_parser("trend", help="查看情绪变化趋势")
     trend_parser.add_argument("--tid", "-t", required=True, help="帖子ID")
     trend_parser.add_argument("--limit", "-l", type=int, default=10, help="显示条数")
-    
+
+    # recommend 命令
+    recommend_parser = subparsers.add_parser("recommend", help="生成股票推荐信号")
+    recommend_parser.add_argument("--tid", "-t", type=str, default=None, help="基于指定帖子生成（多个逗号分隔）")
+    recommend_parser.add_argument("--strategy", "-s", choices=["short", "mid"], default="short", help="策略类型")
+    recommend_parser.add_argument("--limit", "-l", type=int, default=10, help="显示条数")
+    recommend_parser.add_argument("--save", action="store_true", help="保存信号到历史")
+
     args = parser.parse_args()
     
     if not args.command:
@@ -289,6 +383,13 @@ def main():
         cli.analyze(args.tid, args.max_pages)
     elif args.command == "monitor":
         print("🚧 监控模式开发中...")
+    elif args.command == "recommend":
+        cli.recommend(
+            tid_list=args.tid.split(",") if args.tid else None,
+            strategy=StrategyType.MID if args.strategy == "mid" else StrategyType.SHORT,
+            limit=args.limit,
+            save=args.save,
+        )
 
 
 if __name__ == "__main__":
