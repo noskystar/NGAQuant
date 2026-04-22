@@ -114,11 +114,6 @@ class LLMClient:
         content = re.sub(r'^```\s*', '', content, flags=re.MULTILINE)
         # 去除多余空白
         content = content.strip()
-        # 提取 JSON
-        content = re.sub(r'^```json\s*', '', content, flags=re.MULTILINE)
-        content = re.sub(r'^```\s*', '', content, flags=re.MULTILINE)
-        content = re.sub(r'^```json\s*', '', content, flags=re.MULTILINE)
-        content = content.strip()
         # 尝试提取 JSON 对象
         brace_start = content.find('{')
         brace_end = content.rfind('}')

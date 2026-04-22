@@ -62,6 +62,9 @@ class BoardCrawler:
 
         try:
             r = self.session.get(self.BASE_URL, params=params, timeout=10)
+            if r.status_code != 200:
+                logger.warning(f"板块 {fid} 请求失败: HTTP {r.status_code}")
+                return []
             r.encoding = 'GBK'
             text = r.text
         except Exception as e:
@@ -72,7 +75,8 @@ class BoardCrawler:
             logger.warning(f"板块请求返回错误（cookie可能过期）: {text[:200]}")
             return []
 
-        return self._parse_text(text)
+        posts = self._parse_text(text)
+        return posts[:limit] if limit else posts
 
     def get_hot_posts(self, fid: str = "706", pages: int = 3) -> List[BoardPost]:
         """
@@ -81,7 +85,7 @@ class BoardCrawler:
         """
         all_posts = []
         for page in range(1, pages + 1):
-            posts = self.get_posts(fid=fid, page=page, limit=40)
+            posts = self.get_posts(fid=fid, page=page, limit=50)
             all_posts.extend(posts)
 
         # 去重 + 计算热度
@@ -119,7 +123,7 @@ class BoardCrawler:
                 postdate_ts = int(block[3])
                 lastpost_ts = int(block[4])
                 replies = max(0, int(block[5]))
-                recommend = int(block[6])
+                recommend = max(0, int(block[6]))
                 lastposter = block[7]
 
                 if not tid or not subject:

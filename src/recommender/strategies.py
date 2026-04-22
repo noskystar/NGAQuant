@@ -125,11 +125,10 @@ class MidTermStrategy:
         else:
             return False, f"RSI偏弱({rsi:.1f})"
 
-        # 量价
-        if volume_ratio >= cls.ACCUM_VOLUME_RATIO_MIN:
-            reasons.append(f"量能放大(量比{volume_ratio:.1f})")
-        else:
-            reasons.append(f"量能温和(量比{volume_ratio:.1f})")
+        # 量价（量能不足直接拒绝）
+        if volume_ratio < cls.ACCUM_VOLUME_RATIO_MIN:
+            return False, f"量能不足(量比{volume_ratio:.1f} < {cls.ACCUM_VOLUME_RATIO_MIN})"
+        reasons.append(f"量能放大(量比{volume_ratio:.1f})")
 
         return True, "; ".join(reasons)
 

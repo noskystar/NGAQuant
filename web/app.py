@@ -43,6 +43,8 @@ if 'board_crawler' not in st.session_state:
     st.session_state.board_crawler = BoardCrawler()
 if 'nga_crawler' not in st.session_state:
     st.session_state.nga_crawler = NGACrawler(cookie=config.nga.cookie)
+if 'llm_client' not in st.session_state:
+    st.session_state.llm_client = LLMClient(api_key=config.minimax.api_key)
 if 'hot_posts' not in st.session_state:
     st.session_state.hot_posts = []
 if 'analysis_results' not in st.session_state:
@@ -78,7 +80,7 @@ with col1:
 with col2:
     st.metric("📊 监控帖子", f"{len(st.session_state.hot_posts)}", "")
 with col3:
-    st.metric("🎯 活跃信号", "0", "")
+    st.metric("🎯 已分析帖数", f"{len(st.session_state.analysis_results)}", "")
 with col4:
     st.metric("⏰ 更新时间", datetime.now().strftime("%H:%M"), "")
 
@@ -109,8 +111,7 @@ else:
                     valid = [p for p in posts if p.content and len(p.content) > 15]
                     
                     if valid:
-                        llm = LLMClient(api_key=config.minimax.api_key)
-                        results = llm.batch_analyze([p.content for p in valid[:20]])
+                        results = st.session_state.llm_client.batch_analyze([p.content for p in valid[:20]])
                         report = SentimentAggregator.aggregate(results)
                         stocks = analyze_stock_mentions([p.content for p in valid])
                         

@@ -176,7 +176,8 @@ class RecommenderEngine:
         valid_days = 28
 
         # 情绪均线
-        emotion_ma3_prev = sum(emotion_trend_3d[-2:]) / 2 if len(emotion_trend_3d) >= 2 else emotion_trend_3d[0]
+        trend_len = min(3, len(emotion_trend_3d))
+        emotion_ma3_prev = sum(emotion_trend_3d[-trend_len:]) / trend_len
         emotion_trend_str = "rising" if emotion_trend_3d[-1] > emotion_ma3_prev else "falling"
 
         # 布局检查
