@@ -8,6 +8,7 @@ from typing import List, Dict, Optional
 from dataclasses import dataclass
 from enum import Enum
 import json
+from concurrent.futures import ThreadPoolExecutor, as_completed
 
 class SentimentType(Enum):
     """情感类型"""
@@ -189,13 +190,31 @@ class LLMClient:
             key_points=result.get("key_points", [])
         )
 
-    def batch_analyze(self, posts: List[str]) -> List[SentimentResult]:
-        """批量分析"""
-        results = []
-        for i, post in enumerate(posts):
-            print(f"分析第 {i+1}/{len(posts)} 条帖子...")
-            result = self.analyze_sentiment(post)
-            results.append(result)
+    def batch_analyze(self, posts: List[str], max_workers: int = 8) -> List[SentimentResult]:
+        """批量并发分析（默认8线程）"""
+        results: List[SentimentResult] = [None] * len(posts)
+
+        def analyze_one(args):
+            i, post = args
+            return i, self.analyze_sentiment(post)
+
+        print(f"并发分析 {len(posts)} 条帖子（{max_workers} 线程）...")
+        with ThreadPoolExecutor(max_workers=max_workers) as executor:
+            futures = {executor.submit(analyze_one, (i, post)): i for i, post in enumerate(posts)}
+            for future in as_completed(futures):
+                try:
+                    i, r = future.result()
+                    results[i] = r
+                    print(f"  [{i+1}/{len(posts)}] ✓")
+                except Exception as e:
+                    print(f"  [{futures[future]+1}/{len(posts)}] ✗ {e}")
+                    results[futures[future]] = SentimentResult(
+                        sentiment=SentimentType.NEUTRAL,
+                        confidence=0.0,
+                        reasoning=f"分析失败: {e}",
+                        mentioned_stocks=[],
+                        key_points=[],
+                    )
         return results
 
 
