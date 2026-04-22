@@ -363,32 +363,42 @@ def extract_stocks(text: str, search_pinyin: bool = False) -> List["Stock"]:
 def analyze_stock_mentions(posts: List[str]) -> List[Stock]:
     """
     分析帖子中股票提及情况
-    
+
+    每只股票在每个帖子中最多计1次（存在即提及），
+    最后按跨帖子总数排序。
+
     Args:
         posts: 帖子内容列表
-        
+
     Returns:
         按提及次数排序的股票列表
     """
-    all_stocks: Dict[str, Stock] = {}
-    
+    # per_post_stocks[tid_idx][code] = True 表示该帖提到过该股票
+    all_stocks: Dict[str, int] = {}  # code -> 被多少个帖子提及
+    stock_info: Dict[str, Stock] = {}  # code -> Stock 元信息
+
     for post in posts:
         stocks = extract_stocks(post, search_pinyin=False)
+        # 这篇帖子提到哪些股票（去重）
+        mentioned_in_post = set()
         for stock in stocks:
-            code = stock.code
-            if code in all_stocks:
-                all_stocks[code].mention_count += stock.mention_count
-            else:
-                all_stocks[code] = stock
-    
-    # 按提及次数排序
-    sorted_stocks = sorted(
-        all_stocks.values(), 
-        key=lambda x: x.mention_count, 
-        reverse=True
-    )
-    
-    return sorted_stocks
+            if stock.code and stock.code not in mentioned_in_post:
+                mentioned_in_post.add(stock.code)
+                stock_info[stock.code] = stock
+                all_stocks[stock.code] = all_stocks.get(stock.code, 0) + 1
+
+    # 构build Stock 对象并按总提及次数排序
+    result = [
+        Stock(
+            name=stock_info[code].name,
+            code=code,
+            market=stock_info[code].market,
+            mention_count=count,
+        )
+        for code, count in all_stocks.items()
+    ]
+    result.sort(key=lambda x: x.mention_count, reverse=True)
+    return result
 
 # ==========================================
 # 拼音缩写股票字典
@@ -562,21 +572,29 @@ def search_unknown_pinyin(text: str, already_found: set) -> List["Stock"]:
     text_pinyin = ''.join(_lazy_pinyin(text)).upper()
 
     seen_keys = set()
+    seen_stock_names = set(already_found)  # 防止同一只股票被不同窗口重复添加
     for i in range(len(text_pinyin) - 4):
         key = text_pinyin[i:i+5]
         if key in seen_keys:
             continue
         seen_keys.add(key)
-        
+
         stocks = _stock_pinyin_map.get(key, [])
         for stock in stocks:
-            if stock.name in already_found:
+            if stock.name in seen_stock_names:
                 continue
             if stock.name not in _pinyin_search_cache:
                 _pinyin_search_cache[stock.name] = stock
-            if stock.name not in already_found:
-                results.append(stock)
+            seen_stock_names.add(stock.name)
+            results.append(stock)
 
-    return results
+    # 按 stock code 去重，防止同一只股票被多个窗口或多种方式匹配到
+    seen_codes = set()
+    deduped = []
+    for stock in results:
+        if stock.code not in seen_codes:
+            seen_codes.add(stock.code)
+            deduped.append(stock)
+    return deduped
 
 
