@@ -13,6 +13,7 @@ sys.path.insert(0, str(Path(__file__).parent / "src"))
 from crawler.nga_client import NGACrawler
 from analyzer.stock_extractor import extract_stocks, analyze_stock_mentions
 from analyzer.sentiment import LLMClient, SentimentAggregator
+from config import config
 from history.manager import HistoryManager
 from history.trend import EmotionTrend
 import json
@@ -38,7 +39,7 @@ class NGAQuantCLI:
         
         # 1. 爬取帖子
         print("\n📥 正在爬取帖子内容...")
-        self.crawler = NGACrawler()
+        self.crawler = NGACrawler(cookie=config.nga.cookie)
         posts = self.crawler.get_full_thread(tid, max_pages=max_pages)
         
         if not posts:
@@ -59,7 +60,7 @@ class NGAQuantCLI:
         
         # 3. 情感分析
         print("\n🧠 进行情感分析...")
-        self.llm_client = LLMClient()
+        self.llm_client = LLMClient(api_key=config.minimax.api_key)
         
         # 只分析楼主和重要回复
         main_posts = [p for p in posts if p.is_main_post or len(p.content) > 50]

@@ -50,6 +50,15 @@ class AnalysisRecord:
         # 序列化时去掉 dataclass 嵌套标记
         return d
 
+    @classmethod
+    def from_dict(cls, data: Dict[str, Any]) -> "AnalysisRecord":
+        """从字典加载（处理嵌套 dataclass 反序列化）"""
+        if isinstance(data.get("emotion"), dict):
+            data["emotion"] = SentimentSummary(**data["emotion"])
+        if data.get("top_stocks") and isinstance(data["top_stocks"][0], dict):
+            data["top_stocks"] = [StockMention(**s) for s in data["top_stocks"]]
+        return cls(**data)
+
     def save(self) -> Path:
         """保存到 JSON 文件"""
         ts = datetime.now().strftime("%Y%m%d_%H%M%S")
@@ -82,7 +91,7 @@ class HistoryManager:
             try:
                 with open(fp, encoding="utf-8") as f:
                     data = json.load(f)
-                records.append(AnalysisRecord(**data))
+                records.append(AnalysisRecord.from_dict(data))
             except Exception:
                 continue
         return records
