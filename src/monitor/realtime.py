@@ -54,7 +54,7 @@ class ThreadMonitor:
         
         # 组件
         self.crawler = NGACrawler()
-        self.llm_client = LLMClient(api_key=config.kimi.api_key)
+        self.llm_client = LLMClient(api_key=config.minimax.api_key)
         
         # 运行状态
         self._running = False

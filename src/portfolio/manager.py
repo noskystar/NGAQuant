@@ -122,8 +122,18 @@ class PortfolioManager:
             session.close()
     
     def _get_current_price(self, stock_code: str) -> Optional[float]:
-        """获取当前价格（简化实现）"""
-        # 实际应该调用 AKShare/Tushare 等行情API
+        """通过 AKShare 获取 A 股实时价格"""
+        try:
+            import akshare as ak
+            symbol = stock_code.strip()
+            market = 'sh' if symbol.startswith(('6', '5')) else 'sz'
+            df = ak.stock_zh_a_spot_em()
+            row = df[df['代码'] == symbol]
+            if not row.empty:
+                price = float(row['最新价'].iloc[0])
+                return price if price > 0 else None
+        except Exception:
+            pass
         return None
     
     def get_portfolio_summary(self) -> Dict:

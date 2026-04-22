@@ -30,7 +30,7 @@ class LLMClient:
 
     def __init__(self, api_key: Optional[str] = None):
         self.api_key = api_key or os.getenv("MINIMAX_API_KEY")
-        self.base_url = "http://api.minimaxi.com/v1"
+        self.base_url = "https://api.minimaxi.com/v1"
 
         try:
             import openai
@@ -122,7 +122,17 @@ class LLMClient:
         brace_end = content.rfind('}')
         if brace_start >= 0 and brace_end > brace_start:
             content = content[brace_start:brace_end+1]
-        result = json.loads(content)
+        try:
+            result = json.loads(content)
+        except json.JSONDecodeError as e:
+            logger.warning(f"LLM 返回非 JSON 格式: {e}")
+            return SentimentResult(
+                sentiment=SentimentType.NEUTRAL,
+                confidence=0.0,
+                reasoning=f"JSON 解析失败: {e}，LLM 返回内容: {content[:200]}",
+                mentioned_stocks=[],
+                key_points=[],
+            )
         return self._parse_result(result)
 
 

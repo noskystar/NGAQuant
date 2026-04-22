@@ -61,6 +61,10 @@ class NGACrawler:
         Returns:
             帖子列表
         """
+        # URL 注入防护：只允许纯数字 tid
+        if not re.fullmatch(r'\d+', str(tid)):
+            logger.warning(f"无效的 tid: {tid}，跳过请求")
+            return []
         url = f"{self.BASE_URL}/read.php?tid={tid}&page={page}"
         
         try:
@@ -231,8 +235,10 @@ class NGACrawler:
         all_posts = []
         cutoff_time = None
         if max_hours > 0:
-            from datetime import timezone
-            cutoff_time = datetime.now(timezone.utc) - timedelta(hours=max_hours)
+            from datetime import timezone, timedelta as td
+            # NGA 时间戳是 naive（无时区信息），统一当作 UTC+8 处理
+            now_utc8 = datetime.now(timezone.utc).replace(tzinfo=None) + td(hours=8)
+            cutoff_time = now_utc8 - td(hours=max_hours)
 
         print(f"帖子共 {total_pages} 页，从第 {start_page} 页倒序爬取至第 {end_page} 页...")
 
@@ -292,13 +298,21 @@ def filter_posts_by_hours(posts: List[NGAPost], max_hours: int) -> List[NGAPost]
     if max_hours <= 0:
         return posts
 
-    from datetime import timezone
-    now = datetime.now(timezone.utc)
-    cutoff = now.timestamp() - max_hours * 3600
-    
+    from datetime import timezone, timedelta as td
+    # NGA 时间戳是 naive，统一当作 UTC+8 处理
+    now_utc8 = datetime.now(timezone.utc).replace(tzinfo=None) + td(hours=8)
+    cutoff = now_utc8.timestamp() - max_hours * 3600
+
     filtered = []
     for post in posts:
-        if post.timestamp is None or post.timestamp.timestamp() >= cutoff:
+        if post.timestamp is None:
             filtered.append(post)
+        else:
+            # NGA timestamp 是 naive，当作 UTC+8 处理后再转 timestamp
+            import zoneinfo
+            utc8 = zoneinfo.ZoneInfo('Asia/Shanghai')
+            aware_ts = post.timestamp.replace(tzinfo=utc8)
+            if aware_ts.timestamp() >= cutoff:
+                filtered.append(post)
 
     return filtered

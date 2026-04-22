@@ -544,7 +544,12 @@ def search_unknown_pinyin(text: str, already_found: set) -> List["Stock"]:
             if stock and stock.name not in already_found:
                 results.append(stock)
             continue
-        stock = PINYIN_DICT.get(abbr)
+        stock_name = PINYIN_DICT.get(abbr)
+        stock = None
+        if stock_name:
+            info = ALL_STOCKS.get(stock_name, {})
+            if info:
+                stock = Stock(name=stock_name, code=info.get('code', ''), market=info.get('market', ''), mention_count=1)
         _pinyin_search_cache[abbr] = stock
         if stock and stock.name not in already_found:
             results.append(stock)

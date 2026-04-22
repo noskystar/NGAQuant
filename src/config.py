@@ -90,7 +90,7 @@ class ConfigManager:
         
         return MiniMaxConfig(
             api_key=api_key,
-            base_url=minimax_section.get('base_url', 'http://api.minimaxi.com/v1'),
+            base_url=minimax_section.get('base_url', 'https://api.minimaxi.com/v1'),
             model=minimax_section.get('model', 'MiniMax-M2.7')
         )
     
