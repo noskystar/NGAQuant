@@ -3,6 +3,7 @@
 使用 LLM (MiniMax) 分析 NGA 帖子情感倾向
 """
 import os
+from loguru import logger
 from typing import List, Dict, Optional
 from dataclasses import dataclass
 from enum import Enum

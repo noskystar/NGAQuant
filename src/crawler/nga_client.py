@@ -138,7 +138,8 @@ class NGACrawler:
                     continue
                 
                 # 提取时间 - 从 .c2 内容的开头提取时间戳
-                timestamp = datetime.now()
+                from zoneinfo import ZoneInfo
+                timestamp = datetime.now(ZoneInfo('Asia/Shanghai'))
                 if content_elem:
                     raw_text = content_elem.get_text()
                     time_match = re.search(r'(\d{4}-\d{2}-\d{2} \d{2}:\d{2})', raw_text)
@@ -172,12 +173,14 @@ class NGACrawler:
         return posts
     
     def _parse_time(self, time_str: str) -> Optional[datetime]:
-        """解析时间字符串。解析失败返回 None（避免 datetime.now() 导致 max_hours 过滤失效）"""
-        # NGA时间格式: 2024-01-15 14:30:00 或 2024-01-15 14:30
+        """解析 NGA 时间字符串，返回 aware datetime（UTC+8）。解析失败返回 None。"""
+        from zoneinfo import ZoneInfo
+        utc8 = ZoneInfo('Asia/Shanghai')
         time_str = time_str.strip()
         for fmt in ('%Y-%m-%d %H:%M:%S', '%Y-%m-%d %H:%M'):
             try:
-                return datetime.strptime(time_str, fmt)
+                naive_dt = datetime.strptime(time_str, fmt)
+                return naive_dt.replace(tzinfo=utc8)
             except ValueError:
                 pass
         return None
@@ -235,10 +238,10 @@ class NGACrawler:
         all_posts = []
         cutoff_time = None
         if max_hours > 0:
-            from datetime import timezone, timedelta as td
-            # NGA 时间戳是 naive（无时区信息），统一当作 UTC+8 处理
-            now_utc8 = datetime.now(timezone.utc).replace(tzinfo=None) + td(hours=8)
-            cutoff_time = now_utc8 - td(hours=max_hours)
+            from zoneinfo import ZoneInfo
+            from datetime import timedelta as td
+            utc8 = ZoneInfo('Asia/Shanghai')
+            cutoff_time = datetime.now(utc8) - td(hours=max_hours)
 
         print(f"帖子共 {total_pages} 页，从第 {start_page} 页倒序爬取至第 {end_page} 页...")
 
@@ -298,19 +301,19 @@ def filter_posts_by_hours(posts: List[NGAPost], max_hours: int) -> List[NGAPost]
     if max_hours <= 0:
         return posts
 
-    from datetime import timezone, timedelta as td
-    # NGA 时间戳是 naive，统一当作 UTC+8 处理
-    now_utc8 = datetime.now(timezone.utc).replace(tzinfo=None) + td(hours=8)
-    cutoff = now_utc8.timestamp() - max_hours * 3600
+    from zoneinfo import ZoneInfo
+    from datetime import timedelta as td
+    # 统一用 aware datetime，避免 naive .timestamp() 按本地时区解释的问题
+    utc8 = ZoneInfo('Asia/Shanghai')
+    now_aware = datetime.now(utc8)
+    cutoff = now_aware.timestamp() - max_hours * 3600
 
     filtered = []
     for post in posts:
         if post.timestamp is None:
             filtered.append(post)
         else:
-            # NGA timestamp 是 naive，当作 UTC+8 处理后再转 timestamp
-            import zoneinfo
-            utc8 = zoneinfo.ZoneInfo('Asia/Shanghai')
+            # NGA timestamp 是 naive，当作 UTC+8 处理
             aware_ts = post.timestamp.replace(tzinfo=utc8)
             if aware_ts.timestamp() >= cutoff:
                 filtered.append(post)
