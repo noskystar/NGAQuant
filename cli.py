@@ -13,6 +13,8 @@ sys.path.insert(0, str(Path(__file__).parent / "src"))
 from crawler.nga_client import NGACrawler
 from analyzer.stock_extractor import extract_stocks, analyze_stock_mentions
 from analyzer.sentiment import LLMClient, SentimentAggregator
+from history.manager import HistoryManager
+from history.trend import EmotionTrend
 import json
 from datetime import datetime
 
@@ -72,8 +74,11 @@ class NGAQuantCLI:
         
         # 5. 输出报告
         self._print_report(report)
-        
-        # 6. 保存结果
+
+        # 6. 保存到历史记录
+        self._save_to_history(tid, posts, report, stocks)
+
+        # 7. 保存结果（兼容旧接口）
         self._save_results(tid, report, stocks)
     
     def _print_report(self, report: dict):
@@ -116,6 +121,43 @@ class NGAQuantCLI:
         
         print(f"\n分析置信度: {report.get('avg_confidence', 0) * 100:.1f}%")
     
+    def _save_to_history(self, tid: str, posts: list, report: dict, stocks: list):
+        """保存到历史记录并与上次对比"""
+        valid_posts = [p for p in posts if p.content and len(p.content) > 15]
+        # 取关键帖子摘要
+        key_posts = []
+        for p in valid_posts[:5]:
+            snippet = p.content[:100].replace('\n', ' ')
+            key_posts.append(f"#{p.floor}: {snippet}...")
+
+        history = HistoryManager()
+        fp = history.save_analysis(
+            tid=tid,
+            total_posts=len(posts),
+            valid_posts=len(valid_posts),
+            pages_parsed=len(posts) // 20 + 1,
+            emotion_data=report,
+            top_stocks=stocks,
+            key_posts=key_posts,
+        )
+
+        # 与上次对比
+        prev = history.get_previous(tid)
+        latest = history.get_latest(tid)
+        if prev and latest and latest.analyzed_at != prev.analyzed_at:
+            diff = latest.emotion.emotion_index - prev.emotion.emotion_index
+            direction = "↑" if diff > 0 else "↓" if diff < 0 else "→"
+            print(f"\n📈 情绪变化: {direction} {abs(diff):.1f} (上次: {prev.emotion.emotion_index:.1f} → 本次: {latest.emotion.emotion_index:.1f})")
+            prev_stocks = {s.code: s for s in prev.top_stocks}
+            curr_stocks = {s.code: s for s in latest.top_stocks}
+            new_codes = set(curr_stocks.keys()) - set(prev_stocks.keys())
+            gone_codes = set(prev_stocks.keys()) - set(curr_stocks.keys())
+            if new_codes:
+                print(f"   🆕 新热门: {', '.join(curr_stocks[c].name for c in new_codes)}")
+            if gone_codes:
+                print(f"   ➖ 退出热门: {', '.join(prev_stocks[c].name for c in gone_codes)}")
+        print(f"\n💾 已保存历史记录: {fp.name}")
+
     def _save_results(self, tid: str, report: dict, stocks: list):
         """保存分析结果"""
         output_dir = Path("output")
@@ -171,15 +213,77 @@ def main():
     monitor_parser = subparsers.add_parser("monitor", help="监控模式")
     monitor_parser.add_argument("--tid", "-t", required=True, help="帖子ID")
     monitor_parser.add_argument("--interval", "-i", type=int, default=300, help="检查间隔(秒)")
+
+    # history 命令
+    history_parser = subparsers.add_parser("history", help="查看历史记录", aliases=[])
+    history_sub = history_parser.add_subparsers(dest="history_cmd", help="历史命令")
+
+    # history list
+    list_parser = history_sub.add_parser("list", help="列出所有历史记录")
+    list_parser.add_argument("--tid", "-t", type=str, default=None, help="筛选指定帖子")
+    list_parser.add_argument("--limit", "-l", type=int, default=20, help="显示条数")
+
+    # history show
+    show_parser = history_sub.add_parser("show", help="查看某帖子的历史")
+    show_parser.add_argument("--tid", "-t", required=True, help="帖子ID")
+
+    # history trend
+    trend_parser = history_sub.add_parser("trend", help="查看情绪变化趋势")
+    trend_parser.add_argument("--tid", "-t", required=True, help="帖子ID")
+    trend_parser.add_argument("--limit", "-l", type=int, default=10, help="显示条数")
     
     args = parser.parse_args()
     
     if not args.command:
         parser.print_help()
         return
-    
+
+    if args.command == "history":
+        history = HistoryManager()
+        if not args.history_cmd:
+            history_parser.print_help()
+            return
+
+        if args.history_cmd == "list":
+            records = history.list_records(tid=args.tid, limit=args.limit)
+            if not records:
+                print("📭 暂无历史记录")
+                return
+            print(f"📋 历史记录（共 {len(records)} 条）\n")
+            for r in records:
+                ts = r.analyzed_at[:16].replace("T", " ")
+                idx = r.emotion.emotion_index
+                label = r.emotion.emotion_label
+                emoji = "🟢" if idx >= 65 else "🔴" if idx <= 35 else "🟡"
+                print(f"{emoji} {ts} | tid={r.tid} | 情绪 {idx:.1f}（{label}）| 有效帖子 {r.valid_posts}")
+            return
+
+        elif args.history_cmd == "show":
+            records = history.list_records(tid=args.tid, limit=20)
+            if not records:
+                print(f"📭 暂无帖子 {args.tid} 的历史记录")
+                return
+            for r in records:
+                print(f"\n{'='*60}")
+                ts = r.analyzed_at[:16].replace("T", " ")
+                print(f"🕐 {ts} | 情绪指数: {r.emotion.emotion_index:.1f}（{r.emotion.emotion_label}）")
+                print(f"📝 有效帖子: {r.valid_posts}/{r.total_posts} | 爬取页数: {r.pages_parsed}")
+                print(f"📊 看涨 {r.emotion.bullish_ratio*100:.0f}% | 中性 {r.emotion.neutral_ratio*100:.0f}% | 看跌 {r.emotion.bearish_ratio*100:.0f}%")
+                if r.top_stocks:
+                    print(f"🔥 热门股票: {', '.join(f'{s.name}({s.code})' for s in r.top_stocks[:5])}")
+                if r.key_posts_summary:
+                    print(f"💬 关键帖子:")
+                    for post in r.key_posts_summary:
+                        print(f"   {post[:80]}")
+            return
+
+        elif args.history_cmd == "trend":
+            trend_data = history.get_trend(args.tid, limit=args.limit)
+            print(EmotionTrend.analyze(trend_data))
+            return
+
     cli = NGAQuantCLI()
-    
+
     if args.command == "analyze":
         cli.analyze(args.tid, args.max_pages)
     elif args.command == "monitor":
