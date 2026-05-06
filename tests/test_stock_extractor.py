@@ -149,3 +149,23 @@ class TestStockExtractor:
         result = extractor.extract("小米汽车发布了")
         # 不跑LLM时，名称匹配结果保留（confidence=medium）
         assert len(result) >= 0  # 至少不报错
+
+    def test_analyze_stock_mentions_backward_compat(self):
+        """测试analyze_stock_mentions接口向后兼容"""
+        from src.analyzer.stock_extractor import analyze_stock_mentions
+
+        posts = [
+            "600519茅台涨停",
+            "比亚迪002594也不错",
+            "600519又创新高",
+        ]
+        stocks = analyze_stock_mentions(posts)
+
+        assert len(stocks) > 0
+        codes = [s.code for s in stocks]
+        assert "600519" in codes
+        assert "002594" in codes
+
+        # 验证mention_count统计正确（600519在2个帖子中出现）
+        stock_519 = next(s for s in stocks if s.code == "600519")
+        assert stock_519.mention_count == 2

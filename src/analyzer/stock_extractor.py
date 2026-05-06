@@ -378,24 +378,18 @@ def extract_stocks(text: str, search_pinyin: bool = False) -> List["Stock"]:
 
 def analyze_stock_mentions(posts: List[str]) -> List[Stock]:
     """
-    分析帖子中股票提及情况
+    分析帖子中股票提及情况（向后兼容接口）
 
     每只股票在每个帖子中最多计1次（存在即提及），
     最后按跨帖子总数排序。
-
-    Args:
-        posts: 帖子内容列表
-
-    Returns:
-        按提及次数排序的股票列表
     """
-    # per_post_stocks[tid_idx][code] = True 表示该帖提到过该股票
-    all_stocks: Dict[str, int] = {}  # code -> 被多少个帖子提及
-    stock_info: Dict[str, Stock] = {}  # code -> Stock 元信息
+    extractor = StockExtractor(use_llm=False)
+
+    all_stocks: Dict[str, int] = {}
+    stock_info: Dict[str, ExtractedStock] = {}
 
     for post in posts:
-        stocks = extract_stocks(post, search_pinyin=False)
-        # 这篇帖子提到哪些股票（去重）
+        stocks = extractor.extract(post)
         mentioned_in_post = set()
         for stock in stocks:
             if stock.code and stock.code not in mentioned_in_post:
@@ -403,7 +397,6 @@ def analyze_stock_mentions(posts: List[str]) -> List[Stock]:
                 stock_info[stock.code] = stock
                 all_stocks[stock.code] = all_stocks.get(stock.code, 0) + 1
 
-    # 构build Stock 对象并按总提及次数排序
     result = [
         Stock(
             name=stock_info[code].name,
