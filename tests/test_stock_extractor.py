@@ -54,3 +54,21 @@ class TestStockExtractor:
         stocks = extract_stocks("600519涨停600519又涨停", search_pinyin=False)
         if stocks:
             assert stocks[0].mention_count == 2
+
+    def test_load_all_astock_codes(self):
+        """测试从akshare加载全部A股"""
+        from src.analyzer.stock_extractor import StockExtractor
+        extractor = StockExtractor(use_llm=False)
+        assert len(extractor.code_map) > 3000  # A股至少3000+
+        assert "600519" in extractor.code_map  # 茅台必在
+        assert "000001" in extractor.code_map  # 平安银行必在
+
+    def test_name_index_build(self):
+        """测试名称索引构建"""
+        from src.analyzer.stock_extractor import StockExtractor
+        extractor = StockExtractor(use_llm=False)
+        assert len(extractor.name_map) > 3000
+        # 通过名称应能找到代码
+        assert "贵州茅台" in extractor.name_map or any(
+            "茅台" in k for k in extractor.name_map.keys()
+        )

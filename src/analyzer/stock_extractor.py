@@ -23,6 +23,22 @@ class Stock:
         return False
 
 
+@dataclass
+class ExtractedStock:
+    """提取的股票信息"""
+    name: str
+    code: str
+    market: str  # SH/SZ
+    confidence: str  # "high" | "medium" | "verified"
+    source: str  # "code_match" | "name_match" | "llm_verified"
+    context_snippets: List[str] = None
+    mention_count: int = 1
+
+    def __post_init__(self):
+        if self.context_snippets is None:
+            self.context_snippets = []
+
+
 # ==========================================
 # 股票字典 - 支持A股、港股、美股、指数
 # ==========================================
@@ -596,5 +612,58 @@ def search_unknown_pinyin(text: str, already_found: set) -> List["Stock"]:
             seen_codes.add(stock.code)
             deduped.append(stock)
     return deduped
+
+
+class StockExtractor:
+    """三层股票提取器"""
+
+    def __init__(self, use_llm: bool = True):
+        self.use_llm = use_llm
+        self.code_map = self._load_all_astock_codes()
+        self.name_map = self._build_name_index()
+        self.llm_client = None
+        if use_llm:
+            try:
+                from src.analyzer.sentiment import LLMClient
+                self.llm_client = LLMClient()
+            except Exception:
+                pass
+
+    def _load_all_astock_codes(self) -> Dict[str, Dict]:
+        """从akshare加载全部A股代码和名称"""
+        try:
+            import akshare as ak
+            df = ak.stock_info_a_code_name()
+            code_map = {}
+            for _, row in df.iterrows():
+                code = str(row['code']).strip()
+                name = str(row['name']).strip()
+                if len(code) == 6 and name:
+                    market = 'SH' if code.startswith(('6', '5', '9')) else 'SZ'
+                    code_map[code] = {'name': name, 'code': code, 'market': market}
+            return code_map
+        except Exception as e:
+            print(f"[警告] akshare加载失败，降级到内置字典: {e}")
+            # 降级到内置字典
+            code_map = {}
+            for name, info in ALL_STOCKS.items():
+                code = info['code']
+                if len(code) == 6:
+                    code_map[code] = {'name': name, 'code': code, 'market': info['market']}
+            return code_map
+
+    def _build_name_index(self) -> Dict[str, str]:
+        """构建名称→代码索引"""
+        index = {}
+        # 从code_map建立索引
+        for code, info in self.code_map.items():
+            name = info['name']
+            index[name] = code
+            # 也加入内置字典的别名
+            if name in ALL_STOCKS:
+                for alias in ALL_STOCKS[name].get('aliases', []):
+                    if alias != code and len(alias) >= 2:
+                        index[alias] = code
+        return index
 
 
