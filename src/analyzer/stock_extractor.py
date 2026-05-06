@@ -652,6 +652,42 @@ class StockExtractor:
                     code_map[code] = {'name': name, 'code': code, 'market': info['market']}
             return code_map
 
+    # 沪市：600/601/603/605/688  深市：000/001/002/003/300/301
+    CODE_PATTERN = re.compile(
+        r'(?<![\d])(600\d{3}|601\d{3}|603\d{3}|605\d{3}|688\d{3}'
+        r'|000\d{3}|001\d{3}|002\d{3}|003\d{3}|300\d{3}|301\d{3})(?![\d])'
+    )
+
+    def _extract_by_code(self, text: str) -> List[ExtractedStock]:
+        """Layer 1: 通过6位数字代码直接匹配"""
+        stocks = []
+        seen_codes = set()
+
+        for match in self.CODE_PATTERN.finditer(text):
+            code = match.group(1)
+            if code in seen_codes:
+                continue
+            seen_codes.add(code)
+
+            if code in self.code_map:
+                info = self.code_map[code]
+                stocks.append(ExtractedStock(
+                    name=info['name'],
+                    code=code,
+                    market=info['market'],
+                    confidence="high",
+                    source="code_match",
+                    context_snippets=[self._get_snippet(text, match.start(), match.end())]
+                ))
+
+        return stocks
+
+    def _get_snippet(self, text: str, start: int, end: int, radius: int = 30) -> str:
+        """提取关键词周围文本片段"""
+        snippet_start = max(0, start - radius)
+        snippet_end = min(len(text), end + radius)
+        return text[snippet_start:snippet_end].strip()
+
     def _build_name_index(self) -> Dict[str, str]:
         """构建名称→代码索引"""
         index = {}

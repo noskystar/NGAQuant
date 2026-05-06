@@ -72,3 +72,34 @@ class TestStockExtractor:
         assert "贵州茅台" in extractor.name_map or any(
             "茅台" in k for k in extractor.name_map.keys()
         )
+
+    def test_extract_by_code_match(self):
+        """测试6位代码直接匹配"""
+        from src.analyzer.stock_extractor import StockExtractor
+        extractor = StockExtractor(use_llm=False)
+
+        text = "今天600519涨停了，002594也不错，300750创新高"
+        stocks = extractor._extract_by_code(text)
+
+        codes = [s.code for s in stocks]
+        assert "600519" in codes
+        assert "002594" in codes
+        assert "300750" in codes
+        # 验证名称被正确填充
+        names = {s.code: s.name for s in stocks}
+        assert "贵州茅台" in names.values() or names.get("600519") != "600519"
+
+        # 验证置信度
+        for s in stocks:
+            assert s.confidence == "high"
+            assert s.source == "code_match"
+
+    def test_no_false_code_match(self):
+        """测试不误匹配非股票6位数字"""
+        from src.analyzer.stock_extractor import StockExtractor
+        extractor = StockExtractor(use_llm=False)
+
+        text = "我的电话是13800138000，密码是600519123"
+        stocks = extractor._extract_by_code(text)
+        # 600519123不是6位代码，不应匹配
+        assert len(stocks) == 0
