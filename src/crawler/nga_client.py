@@ -46,7 +46,8 @@ class NGACrawler:
     )
     def _fetch_page(self, url: str) -> requests.Response:
         """获取页面内容（带重试）"""
-        response = self.session.get(url, timeout=config.nga.timeout)
+        # (连接超时, 读取超时) — 避免服务器挂起不响应
+        response = self.session.get(url, timeout=(5, 15))
         response.encoding = 'GB18030'
         return response
     

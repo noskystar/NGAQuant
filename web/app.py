@@ -69,27 +69,53 @@ if 'analysis_results' not in st.session_state:
 
 # ==================== 分析函数 ====================
 def _analyze_selected_posts():
-    """分析选中的帖子"""
+    """分析选中的帖子（带进度显示和超时保护）"""
     selected_tids = list(st.session_state.selected_posts)
     all_posts_content = []
 
-    for tid in selected_tids:
-        posts = st.session_state.nga_crawler.get_full_thread(tid, max_pages=2)
-        valid = [p for p in posts if p.content and len(p.content) > 15]
-        all_posts_content.extend([p.content for p in valid[:15]])
+    # 1. 爬取帖子
+    with st.status(f"📡 正在爬取 {len(selected_tids)} 个帖子...", expanded=True) as status:
+        for i, tid in enumerate(selected_tids, 1):
+            status.write(f"爬取帖子 {i}/{len(selected_tids)} (tid={tid})...")
+            try:
+                posts = st.session_state.nga_crawler.get_full_thread(tid, max_pages=2)
+                valid = [p for p in posts if p.content and len(p.content) > 15]
+                all_posts_content.extend([p.content for p in valid[:15]])
+                status.write(f"  ✓ 帖子 {tid}: {len(valid)} 条有效回复")
+            except Exception as e:
+                status.write(f"  ✗ 帖子 {tid}: 爬取失败 ({e})")
+                continue
 
-    if not all_posts_content:
-        st.warning("选中的帖子内容不足")
-        return
+        # 限制总回复数，避免分析过慢
+        if len(all_posts_content) > 50:
+            status.write(f"回复较多，取前 50 条进行分析（共 {len(all_posts_content)} 条）")
+            all_posts_content = all_posts_content[:50]
+        else:
+            status.write(f"共 {len(all_posts_content)} 条回复待分析")
 
-    analyzer = st.session_state.stock_sentiment_analyzer
-    stock_sentiments = analyzer.analyze(all_posts_content)
+        if not all_posts_content:
+            st.warning("选中的帖子内容不足")
+            return
 
-    results = st.session_state.llm_client.batch_analyze(all_posts_content[:20])
-    report = SentimentAggregator.aggregate(results)
+        # 2. 股票级情感分析
+        status.update(label="🔍 正在进行股票级情感分析...")
+        analyzer = st.session_state.stock_sentiment_analyzer
+        stock_sentiments = analyzer.analyze(all_posts_content)
+        status.write(f"✓ 分析完成，发现 {len(stock_sentiments)} 只股票")
 
-    stock_list = [{"name": s.name, "code": s.code} for s in stock_sentiments[:10]]
-    prices = PriceFetcher.get_batch_realtime_with_names(stock_list)
+        # 3. 整体情感分析（LLM）
+        status.update(label="🤖 正在调用 LLM 进行整体情感分析...")
+        results = st.session_state.llm_client.batch_analyze(all_posts_content[:20])
+        report = SentimentAggregator.aggregate(results)
+        status.write(f"✓ 整体情感分析完成")
+
+        # 4. 获取价格数据
+        status.update(label="💰 正在获取实时价格...")
+        stock_list = [{"name": s.name, "code": s.code} for s in stock_sentiments[:10]]
+        prices = PriceFetcher.get_batch_realtime_with_names(stock_list)
+        status.write(f"✓ 获取到 {len(prices)} 只股票的价格")
+
+        status.update(label="✅ 分析完成！", state="complete")
 
     result_key = f"batch_{','.join(map(str, selected_tids))}"
     st.session_state.analysis_results[result_key] = {
