@@ -298,3 +298,62 @@ if __name__ == "__main__":
     print(f"置信度: {result.confidence}")
     print(f"理由: {result.reasoning}")
     print(f"提到的股票: {result.mentioned_stocks}")
+
+
+@dataclass
+class StockSentiment:
+    """股票级情感分析结果"""
+    name: str
+    code: str
+    market: str
+    bullish_posts: int = 0
+    bearish_posts: int = 0
+    neutral_posts: int = 0
+    total_mentions: int = 0
+    avg_sentiment_score: float = 0.0
+    key_quotes: List[str] = None
+
+    def __post_init__(self):
+        if self.key_quotes is None:
+            self.key_quotes = []
+
+    @property
+    def bullish_ratio(self) -> float:
+        total = self.bullish_posts + self.bearish_posts + self.neutral_posts
+        return self.bullish_posts / total if total > 0 else 0
+
+    @property
+    def bearish_ratio(self) -> float:
+        total = self.bullish_posts + self.bearish_posts + self.neutral_posts
+        return self.bearish_posts / total if total > 0 else 0
+
+
+class StockSentimentAnalyzer:
+    """股票级情感分析器"""
+
+    def __init__(self, extractor, llm_client=None):
+        self.extractor = extractor
+        self.llm_client = llm_client
+
+    def _get_context(self, text: str, stock_name: str, window: int = 50) -> str:
+        """提取股票名称周围的上下文（第一处提及）"""
+        idx = text.find(stock_name)
+        if idx == -1:
+            return text[:100]
+        start = max(0, idx - window)
+        end = min(len(text), idx + len(stock_name) + window)
+        return text[start:end].strip()
+
+    def _get_all_contexts(self, text: str, stock_name: str, window: int = 50) -> List[str]:
+        """提取股票名称所有出现位置的上下文"""
+        contexts = []
+        start = 0
+        while True:
+            idx = text.find(stock_name, start)
+            if idx == -1:
+                break
+            s = max(0, idx - window)
+            e = min(len(text), idx + len(stock_name) + window)
+            contexts.append(text[s:e].strip())
+            start = idx + len(stock_name)
+        return contexts
