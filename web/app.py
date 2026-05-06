@@ -103,13 +103,10 @@ def _analyze_selected_posts():
 def _render_stock_card(stock, price_data):
     """渲染单只股票卡片"""
     if stock.bullish_ratio > 0.6:
-        card_class = "bullish"
         border_color = "#4caf50"
     elif stock.bearish_ratio > 0.6:
-        card_class = "bearish"
         border_color = "#f44336"
     else:
-        card_class = "neutral"
         border_color = "#9e9e9e"
 
     conf_emoji = "⭐⭐" if stock.total_mentions > 2 else "⭐"
@@ -118,40 +115,43 @@ def _render_stock_card(stock, price_data):
     if price_data.get('price'):
         change = price_data.get('change_pct', 0)
         change_emoji = "▲" if change >= 0 else "▼"
-        price_str = f"<div style='font-size:0.75rem;'>现价: ¥{price_data['price']} {change_emoji}{change:.1f}%</div>"
+        price_str = f'<div style="font-size:0.75rem;">现价: ¥{price_data["price"]} {change_emoji}{change:.1f}%</div>'
 
     total = stock.bullish_posts + stock.bearish_posts + stock.neutral_posts
     if total > 0:
         bull_pct = int(stock.bullish_ratio * 100)
         bear_pct = int(stock.bearish_ratio * 100)
         neut_pct = 100 - bull_pct - bear_pct
-        sentiment_bar = f"""
-        <div style="display:flex; height:6px; border-radius:3px; overflow:hidden; margin:5px 0;">
-            <div style="flex:{bull_pct}; background:#4caf50;"></div>
-            <div style="flex:{neut_pct}; background:#9e9e9e;"></div>
-            <div style="flex:{bear_pct}; background:#f44336;"></div>
-        </div>
-        """
+        sentiment_bar = (
+            f'<div style="display:flex;height:6px;border-radius:3px;overflow:hidden;margin:5px 0;">'
+            f'<div style="flex:{bull_pct};background:#4caf50;"></div>'
+            f'<div style="flex:{neut_pct};background:#9e9e9e;"></div>'
+            f'<div style="flex:{bear_pct};background:#f44336;"></div></div>'
+        )
     else:
         sentiment_bar = ""
 
     quote = stock.key_quotes[0] if stock.key_quotes else ""
-    quote_html = f"<div style='font-size:0.7rem; color:#666; font-style:italic; margin-top:5px;'>\"{quote[:30]}{'...' if len(quote) > 30 else ''}\"</div>" if quote else ""
+    if quote:
+        quote_text = quote[:35] + "..." if len(quote) > 35 else quote
+        quote_html = f'<div style="font-size:0.7rem;color:#666;font-style:italic;margin-top:5px;">{quote_text}</div>'
+    else:
+        quote_html = ""
 
-    st.markdown(f"""
-    <div class="stock-card {card_class}" style="border-color:{border_color};">
-        <div style="display:flex; justify-content:space-between; align-items:center;">
-            <span style="font-weight:bold;">{stock.name}</span>
-            <span style="font-size:0.75rem; color:#999;">{stock.code} {conf_emoji}</span>
-        </div>
-        <div style="font-size:0.8rem; margin-top:4px;">
-            提及{stock.total_mentions}次 | 看涨{stock.bullish_posts} 看跌{stock.bearish_posts}
-        </div>
-        {sentiment_bar}
-        {price_str}
-        {quote_html}
-    </div>
-    """, unsafe_allow_html=True)
+    # 使用单行 HTML 避免 markdown 解析问题
+    card_html = (
+        f'<div style="border:2px solid {border_color};border-radius:12px;padding:12px;margin:6px 0;background:#fff;">'
+        f'<div style="display:flex;justify-content:space-between;align-items:center;">'
+        f'<span style="font-weight:bold;">{stock.name}</span>'
+        f'<span style="font-size:0.75rem;color:#999;">{stock.code} {conf_emoji}</span></div>'
+        f'<div style="font-size:0.8rem;margin-top:4px;color:#555;">'
+        f'提及{stock.total_mentions}次 | 看涨{stock.bullish_posts} 看跌{stock.bearish_posts}</div>'
+        f'{sentiment_bar}'
+        f'{price_str}'
+        f'{quote_html}'
+        f'</div>'
+    )
+    st.markdown(card_html, unsafe_allow_html=True)
 
 
 def _render_stock_list_item(stock, price_data):
