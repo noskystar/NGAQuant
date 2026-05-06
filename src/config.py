@@ -52,8 +52,13 @@ class BacktestConfig:
 class ConfigManager:
     """配置管理器"""
     
-    def __init__(self, config_path: str = "config.yaml"):
-        self.config_path = Path(config_path)
+    def __init__(self, config_path: str = None):
+        if config_path is None:
+            # 使用 src/config.py 所在目录的父目录作为项目根目录
+            src_dir = Path(__file__).parent
+            self.config_path = src_dir.parent / "config.yaml"
+        else:
+            self.config_path = Path(config_path)
         self.raw_config: Dict[str, Any] = {}
         
         # 加载配置
