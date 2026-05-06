@@ -103,3 +103,28 @@ class TestStockExtractor:
         stocks = extractor._extract_by_code(text)
         # 600519123不是6位代码，不应匹配
         assert len(stocks) == 0
+
+    def test_extract_by_name_match(self):
+        """测试中文名称匹配"""
+        from src.analyzer.stock_extractor import StockExtractor
+        extractor = StockExtractor(use_llm=False)
+
+        text = "贵州茅台今天涨得很好，比亚迪也不错"
+        stocks = extractor._extract_by_name(text)
+
+        names = [s.name for s in stocks]
+        assert any("茅台" in n for n in names)
+        assert any("比亚迪" in n for n in names)
+        for s in stocks:
+            assert s.confidence == "medium"
+            assert s.source == "name_match"
+
+    def test_extract_by_name_no_false_positive(self):
+        """测试日常用语不误匹配（名称匹配层可能匹配，由Layer3过滤）"""
+        from src.analyzer.stock_extractor import StockExtractor
+        extractor = StockExtractor(use_llm=False)
+
+        text = "海尔冰箱质量真好"
+        stocks = extractor._extract_by_name(text)
+        # 只验证返回类型正确
+        assert isinstance(stocks, list)

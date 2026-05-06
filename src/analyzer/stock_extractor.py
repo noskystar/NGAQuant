@@ -702,4 +702,52 @@ class StockExtractor:
                         index[alias] = code
         return index
 
+    def _extract_by_name(self, text: str, already_found: Set[str] = None) -> List[ExtractedStock]:
+        """Layer 2: 通过中文名称匹配"""
+        if already_found is None:
+            already_found = set()
+
+        stocks = []
+        cleaned = self._clean_text(text)
+
+        # 按名称长度降序匹配，避免短名优先匹配
+        sorted_names = sorted(self.name_map.keys(), key=len, reverse=True)
+
+        for alias in sorted_names:
+            if len(alias) < 2:
+                continue
+
+            code = self.name_map[alias]
+            if code in already_found:
+                continue
+
+            # 构建正则：确保是独立词（仅对英文/数字做边界检查，中文靠长度降序优先匹配）
+            pattern = r'(?<![a-zA-Z0-9])' + re.escape(alias) + r'(?![a-zA-Z0-9])'
+            matches = list(re.finditer(pattern, cleaned))
+
+            if matches:
+                info = self.code_map.get(code, {})
+                if info:
+                    snippets = [self._get_snippet(text, m.start(), m.end()) for m in matches]
+                    stocks.append(ExtractedStock(
+                        name=info['name'],
+                        code=code,
+                        market=info['market'],
+                        confidence="medium",
+                        source="name_match",
+                        context_snippets=snippets,
+                        mention_count=len(matches)
+                    ))
+                    already_found.add(code)
+
+        return stocks
+
+    def _clean_text(self, text: str) -> str:
+        """清理文本用于名称匹配"""
+        # 去除HTML标签
+        text = re.sub(r'<[^>]+>', '', text)
+        # 合并多余空格
+        text = re.sub(r'\s+', ' ', text)
+        return text.strip()
+
 
