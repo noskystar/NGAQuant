@@ -172,3 +172,27 @@ class PriceFetcher:
                 results[code] = data
             time.sleep(0.05)  # 避免请求过快
         return results
+
+    @staticmethod
+    def get_batch_realtime_with_names(stock_list: List[Dict]) -> Dict[str, Dict]:
+        """
+        批量获取实时行情，并关联股票名称
+
+        Args:
+            stock_list: [{"name": "贵州茅台", "code": "600519"}, ...]
+
+        Returns:
+            {code: {"name": str, "code": str, "price": float, "change_pct": float}}
+        """
+        results = {}
+        for stock in stock_list:
+            code = stock.get("code", "")
+            name = stock.get("name", "")
+            if not code:
+                continue
+            data = PriceFetcher.get_realtime(code)
+            if data:
+                data["name"] = name or data.get("name", "")
+                results[code] = data
+            time.sleep(0.05)
+        return results
