@@ -430,3 +430,85 @@ score范围：-1.0（极度看跌）到+1.0（极度看涨）"""
             score = 0.0
 
         return {"sentiment": sentiment, "score": score}
+
+    def analyze(self, posts: List[str]) -> List[StockSentiment]:
+        """
+        分析帖子列表中每只股票的情感倾向
+        """
+        if not posts:
+            return []
+
+        from collections import defaultdict
+
+        stock_sentiments = defaultdict(list)
+        stock_info_map = {}
+
+        for post in posts:
+            stocks = self.extractor.extract(post)
+            for stock in stocks:
+                contexts = self._get_all_contexts(post, stock.name, window=50)
+                for context in contexts:
+                    sentiment = self._analyze_context(context)
+                    stock_sentiments[stock.code].append({
+                        "sentiment": sentiment["sentiment"],
+                        "score": sentiment["score"],
+                        "context": context,
+                    })
+                if stock.code not in stock_info_map:
+                    stock_info_map[stock.code] = stock
+
+        results = []
+        for code, sentiments in stock_sentiments.items():
+            agg = self._aggregate(code, sentiments)
+            stock = stock_info_map.get(code)
+            if stock:
+                agg.name = stock.name
+                agg.code = stock.code
+                agg.market = stock.market
+            results.append(agg)
+
+        results.sort(key=lambda x: x.total_mentions, reverse=True)
+        return results
+
+    def _aggregate(self, code: str, sentiments: List[Dict]) -> StockSentiment:
+        """汇总单只股票的所有情感分析结果"""
+        bullish = bearish = neutral = 0
+        total_score = 0.0
+        key_quotes = []
+
+        seen_contexts = set()
+        for s in sentiments:
+            ctx_key = s["context"][:30]
+            if ctx_key in seen_contexts:
+                continue
+            seen_contexts.add(ctx_key)
+
+            sentiment = s["sentiment"]
+            if sentiment in ("bullish", "slightly_bullish"):
+                bullish += 1
+            elif sentiment in ("bearish", "slightly_bearish"):
+                bearish += 1
+            else:
+                neutral += 1
+
+            total_score += s["score"]
+
+            if len(key_quotes) < 3:
+                quote = s["context"].replace("\n", " ")
+                if quote not in key_quotes:
+                    key_quotes.append(quote)
+
+        total = bullish + bearish + neutral
+        avg_score = total_score / total if total > 0 else 0.0
+
+        return StockSentiment(
+            name="",
+            code=code,
+            market="",
+            bullish_posts=bullish,
+            bearish_posts=bearish,
+            neutral_posts=neutral,
+            total_mentions=total,
+            avg_sentiment_score=avg_score,
+            key_quotes=key_quotes,
+        )

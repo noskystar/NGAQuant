@@ -49,3 +49,28 @@ class TestStockSentimentAnalyzer:
         context = "宁德时代今天成交量100亿"
         result = analyzer._analyze_context(context)
         assert result["sentiment"] == "neutral"
+
+    def test_analyze_stock_sentiment(self):
+        extractor = StockExtractor(use_llm=False)
+        analyzer = StockSentimentAnalyzer(extractor, None)
+        posts = [
+            "宁德时代涨疯了，强烈看好",
+            "宁德时代又创新高，买入",
+            "贵州茅台跌停了，快跑",
+        ]
+        result = analyzer.analyze(posts)
+        assert len(result) >= 2
+        ndsd = next((s for s in result if "宁德" in s.name), None)
+        if ndsd:
+            assert ndsd.bullish_posts >= 2
+            assert ndsd.bullish_ratio > 0.5
+        mt = next((s for s in result if "茅台" in s.name), None)
+        if mt:
+            assert mt.bearish_posts >= 1
+            assert mt.bearish_ratio > 0.5
+
+    def test_analyze_empty_posts(self):
+        extractor = StockExtractor(use_llm=False)
+        analyzer = StockSentimentAnalyzer(extractor, None)
+        result = analyzer.analyze([])
+        assert result == []
