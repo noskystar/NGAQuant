@@ -750,4 +750,75 @@ class StockExtractor:
         text = re.sub(r'\s+', ' ', text)
         return text.strip()
 
+    def _llm_verify(self, text: str, stock: ExtractedStock) -> bool:
+        """Layer 3: 用LLM验证股票提及是否真实"""
+        if not self.llm_client:
+            return True  # 无LLM时保留所有medium结果
+
+        try:
+            context = stock.context_snippets[0] if stock.context_snippets else text[:200]
+            prompt = f"""以下文本中提到的'{stock.name}'是否指A股上市公司？只回答YES或NO。
+
+文本片段：{context}
+
+回答（YES/NO）："""
+
+            response = self.llm_client.client.chat.completions.create(
+                model="MiniMax-M2.7",
+                messages=[
+                    {"role": "system", "content": "你是一个股票识别助手。判断文本中提到的名称是否指上市公司，只回答YES或NO。"},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.1,
+                max_tokens=10
+            )
+            answer = response.choices[0].message.content.strip().upper()
+            return "YES" in answer
+        except Exception as e:
+            print(f"[LLM验证失败] {stock.name}: {e}")
+            return True  # 验证失败时保留结果
+
+    def extract(self, text: str) -> List[ExtractedStock]:
+        """三层提取管道主入口"""
+        # Layer 1: 代码匹配
+        code_stocks = self._extract_by_code(text)
+        already_found = {s.code for s in code_stocks}
+
+        # Layer 2: 名称匹配
+        name_stocks = self._extract_by_name(text, already_found)
+
+        # Layer 3: LLM验证（仅对medium置信度）
+        verified_stocks = []
+        for stock in name_stocks:
+            if stock.confidence == "medium":
+                if self._llm_verify(text, stock):
+                    stock.confidence = "verified"
+                    stock.source = "llm_verified"
+                    verified_stocks.append(stock)
+                # 否则丢弃（误报）
+            else:
+                verified_stocks.append(stock)
+
+        # 合并结果
+        all_stocks = code_stocks + verified_stocks
+
+        # 按code去重（代码匹配优先）
+        result_map = {}
+        for stock in all_stocks:
+            if stock.code not in result_map:
+                result_map[stock.code] = stock
+            else:
+                # 合并上下文和计数
+                existing = result_map[stock.code]
+                existing.mention_count += stock.mention_count
+                for snippet in stock.context_snippets:
+                    if snippet not in existing.context_snippets:
+                        existing.context_snippets.append(snippet)
+                # 置信度取最高
+                if stock.confidence == "high":
+                    existing.confidence = "high"
+                    existing.source = "code_match"
+
+        return list(result_map.values())
+
 

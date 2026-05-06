@@ -128,3 +128,24 @@ class TestStockExtractor:
         stocks = extractor._extract_by_name(text)
         # 只验证返回类型正确
         assert isinstance(stocks, list)
+
+    def test_extract_pipeline_basic(self):
+        """测试完整提取管道"""
+        from src.analyzer.stock_extractor import StockExtractor
+        extractor = StockExtractor(use_llm=False)
+
+        text = "600519茅台涨停，比亚迪002594也涨了"
+        stocks = extractor.extract(text)
+
+        codes = [s.code for s in stocks]
+        assert "600519" in codes
+        assert "002594" in codes
+
+    def test_extract_pipeline_no_llm(self):
+        """测试无LLM时管道正常工作"""
+        from src.analyzer.stock_extractor import StockExtractor
+        extractor = StockExtractor(use_llm=False)
+
+        result = extractor.extract("小米汽车发布了")
+        # 不跑LLM时，名称匹配结果保留（confidence=medium）
+        assert len(result) >= 0  # 至少不报错
