@@ -357,3 +357,76 @@ class StockSentimentAnalyzer:
             contexts.append(text[s:e].strip())
             start = idx + len(stock_name)
         return contexts
+
+    def _analyze_context(self, context: str) -> Dict:
+        """
+        对单段上下文做情感分析
+        返回: {"sentiment": "bullish|slightly_bullish|neutral|slightly_bearish|bearish", "score": float}
+        """
+        if not self.llm_client:
+            return self._keyword_sentiment(context)
+
+        try:
+            prompt = f"""分析以下股票相关文本的情感倾向。
+
+文本：{context}
+
+请判断情感倾向，只从以下选项中选择一项：
+- bullish（强烈看涨）
+- slightly_bullish（轻度看涨）
+- neutral（中性/无明显倾向）
+- slightly_bearish（轻度看跌）
+- bearish（强烈看跌）
+
+以JSON格式输出：
+{{"sentiment": "bullish", "score": 0.8}}
+
+score范围：-1.0（极度看跌）到+1.0（极度看涨）"""
+
+            response = self.llm_client.client.chat.completions.create(
+                model="MiniMax-M2.7",
+                messages=[
+                    {"role": "system", "content": "你是股票情感分析专家。只输出JSON。"},
+                    {"role": "user", "content": prompt}
+                ],
+                temperature=0.3,
+                max_tokens=100
+            )
+            content = response.choices[0].message.content.strip()
+            import json, re
+            content = re.sub(r'<[^>]+>', '', content)
+            content = re.sub(r'^```json\s*', '', content, flags=re.MULTILINE)
+            content = re.sub(r'^```\s*', '', content, flags=re.MULTILINE)
+            brace_start = content.find('{')
+            brace_end = content.rfind('}')
+            if brace_start >= 0 and brace_end > brace_start:
+                content = content[brace_start:brace_end+1]
+            result = json.loads(content)
+            return {
+                "sentiment": result.get("sentiment", "neutral"),
+                "score": result.get("score", 0.0)
+            }
+        except Exception as e:
+            print(f"[情感分析失败] {e}")
+            return self._keyword_sentiment(context)
+
+    def _keyword_sentiment(self, context: str) -> Dict:
+        """关键词情感分析（无LLM降级方案）"""
+        bullish_words = ['涨', '涨停', '利好', '买入', '抄底', '看好', '爆发', '强势', '反弹', '突破', '新高']
+        bearish_words = ['跌', '跌停', '利空', '卖出', '出货', '跑路', '崩盘', '弱势', '跌破', '新低', '套牢']
+
+        context_lower = context.lower()
+        bull_count = sum(1 for w in bullish_words if w in context_lower)
+        bear_count = sum(1 for w in bearish_words if w in context_lower)
+
+        if bull_count > bear_count:
+            sentiment = "bullish" if bull_count - bear_count >= 2 else "slightly_bullish"
+            score = min(0.9, 0.3 + (bull_count - bear_count) * 0.2)
+        elif bear_count > bull_count:
+            sentiment = "bearish" if bear_count - bull_count >= 2 else "slightly_bearish"
+            score = max(-0.9, -0.3 - (bear_count - bull_count) * 0.2)
+        else:
+            sentiment = "neutral"
+            score = 0.0
+
+        return {"sentiment": sentiment, "score": score}

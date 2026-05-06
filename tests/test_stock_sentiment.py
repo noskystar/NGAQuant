@@ -26,3 +26,26 @@ class TestStockSentimentAnalyzer:
         text = "宁德时代好。宁德时代真的好。"
         contexts = analyzer._get_all_contexts(text, "宁德时代", window=10)
         assert len(contexts) == 2
+
+    def test_analyze_context_bullish(self):
+        extractor = StockExtractor(use_llm=False)
+        analyzer = StockSentimentAnalyzer(extractor, None)
+        context = "宁德时代涨疯了，强烈看好，买入机会"
+        result = analyzer._analyze_context(context)
+        assert result["sentiment"] in ["bullish", "slightly_bullish"]
+        assert result["score"] > 0
+
+    def test_analyze_context_bearish(self):
+        extractor = StockExtractor(use_llm=False)
+        analyzer = StockSentimentAnalyzer(extractor, None)
+        context = "宁德时代跌停了，快跑，出货"
+        result = analyzer._analyze_context(context)
+        assert result["sentiment"] in ["bearish", "slightly_bearish"]
+        assert result["score"] < 0
+
+    def test_analyze_context_neutral(self):
+        extractor = StockExtractor(use_llm=False)
+        analyzer = StockSentimentAnalyzer(extractor, None)
+        context = "宁德时代今天成交量100亿"
+        result = analyzer._analyze_context(context)
+        assert result["sentiment"] == "neutral"
